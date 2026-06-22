@@ -1,8 +1,10 @@
 import { Shooter } from "./types";
 
-export const VOLLEY_LEAD_IN_MS = 420;
-export const SHOT_BEAT_MS = 750;
-export const FLIGHT_MS = 520;
+// Slowed for a more readable, weightier volley: longer lead-in, more space between
+// shots, and a slower ball flight so each kick lands clearly.
+export const VOLLEY_LEAD_IN_MS = 520;
+export const SHOT_BEAT_MS = 1050;
+export const FLIGHT_MS = 820;
 
 export type VisibleVolleyAttempt = {
   shooter: Shooter | undefined;

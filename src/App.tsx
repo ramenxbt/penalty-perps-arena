@@ -214,7 +214,17 @@ export function App() {
 
         <div className="arena-card">
           <Suspense fallback={<div className="arena-scene arena-loading" aria-label="Loading 3D penalty arena" />}>
-            <ArenaScene phase={game.phase} shooters={game.shooters} />
+            <ArenaScene
+              phase={game.phase}
+              shooters={game.shooters}
+              hud={{
+                score: game.score,
+                rounds: game.roundsLeft,
+                roundsMax: RULES.dailyRounds,
+                streak: game.streak,
+                market: game.marketAsset.displayPair,
+              }}
+            />
           </Suspense>
 
           <div className="arena-hud">
