@@ -1,19 +1,19 @@
 /**
- * Live market feed for the paper chart. Prefers the selected real Pyth stream and
- * degrades gracefully to the bounded simulator if the stream is unavailable
- * (offline, blocked, or slow to connect) so the arena is never empty or frozen.
+ * Live market feed for the paper chart. Prefers the rapid Hyperliquid mid-price stream
+ * (builds ~1s candles from sub-second mids) and degrades gracefully to the bounded
+ * simulator if the stream is unavailable so the arena is never empty or frozen.
  */
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { createInitialMarket, nextPrice } from "../game/engine";
 import { MarketPoint } from "../game/types";
 import { MarketAsset } from "../game/markets";
-import { fetchLatestPrice, streamPrice } from "../lib/pyth";
+import { fetchLatestPrice, streamPrice } from "../lib/hyperliquid";
 
 export type FeedStatus = "connecting" | "live" | "simulated";
 
 const MAX_POINTS = 96;
-const MIN_APPEND_MS = 450; // throttle: Hermes streams several ticks/sec.
+const MIN_APPEND_MS = 1000; // one chart candle per second.
 const CONNECT_TIMEOUT_MS = 4500; // fall back to sim if no live tick by then.
 const SIM_INTERVAL_MS = 700;
 
