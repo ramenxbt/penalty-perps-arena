@@ -1,80 +1,148 @@
 import {
   Activity,
+  AlertTriangle,
   BadgeCheck,
   Bot,
-  CircleDollarSign,
+  Coins,
   Goal,
   Lock,
-  RefreshCcw,
-  Shield,
   Trophy,
-  UserRound,
+  Volume2,
+  VolumeX,
   Wallet,
   Zap,
 } from "lucide-react";
-import { ArenaScene } from "./ArenaScene";
-import { Direction, MarketPoint, ShotZone } from "./game";
-import { useGameSimulation } from "./useGameSimulation";
+import { lazy, Suspense } from "react";
+import { Candles } from "./components/Candles";
+import { PnlGauge } from "./components/PnlGauge";
+import { TradeTicker } from "./components/TradeTicker";
+import { useAuth, truncateAddress } from "./auth/AuthContext";
+import { configurationError, env, features } from "./config/env";
+import { RULES } from "./game/engine";
+import { formatMarketPrice, getMarketAsset } from "./game/markets";
+import { Direction } from "./game/types";
+import { useArenaAudio } from "./hooks/useArenaAudio";
+import { useGameSimulation } from "./hooks/useGameSimulation";
 
-function formatPrice(value: number) {
-  return value.toLocaleString("en-US", {
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-  });
+const ArenaScene = lazy(() => import("./ArenaScene").then((module) => ({ default: module.ArenaScene })));
+
+function ConfigurationErrorScreen({ message }: { message: string }) {
+  return (
+    <main className="crash-screen" role="alert">
+      <AlertTriangle size={34} />
+      <h1>Backend setup needed</h1>
+      <p>{message}</p>
+    </main>
+  );
 }
 
-function Sparkline({ points, direction }: { points: MarketPoint[]; direction: Direction | null }) {
-  const width = 320;
-  const height = 118;
-  const values = points.map((point) => point.value);
-  const min = Math.min(...values);
-  const max = Math.max(...values);
-  const range = Math.max(0.001, max - min);
-  const path = points
-    .map((point, index) => {
-      const x = (index / Math.max(1, points.length - 1)) * width;
-      const y = height - ((point.value - min) / range) * height;
-      return `${index === 0 ? "M" : "L"} ${x.toFixed(2)} ${y.toFixed(2)}`;
-    })
-    .join(" ");
-  const last = points[points.length - 1];
-  const first = points[Math.max(0, points.length - 12)];
-  const up = last.value >= first.value;
+function feedLabel(status: "connecting" | "live" | "simulated") {
+  if (status === "live") return "LIVE";
+  if (status === "simulated") return "SIM";
+  return "SYNC";
+}
 
+function WalletButton() {
+  const auth = useAuth();
+  if (!auth.ready) {
+    return (
+      <button className="wallet-button" type="button" disabled aria-busy="true">
+        <Wallet size={17} />
+        Loading
+      </button>
+    );
+  }
+  if (auth.isAuthenticated && auth.user) {
+    const label = auth.user.walletAddress
+      ? truncateAddress(auth.user.walletAddress)
+      : auth.user.displayName;
+    return (
+      <button className="wallet-button active" type="button" onClick={auth.logout} title="Disconnect">
+        <Wallet size={17} />
+        {label}
+      </button>
+    );
+  }
   return (
-    <svg className="sparkline" viewBox={`0 0 ${width} ${height}`} role="img" aria-label="Live SOL paper chart">
-      <defs>
-        <linearGradient id="chartFill" x1="0" x2="0" y1="0" y2="1">
-          <stop offset="0%" stopColor={up ? "#B7FF4A" : "#FF5370"} stopOpacity="0.28" />
-          <stop offset="100%" stopColor={up ? "#B7FF4A" : "#FF5370"} stopOpacity="0" />
-        </linearGradient>
-      </defs>
-      <path d={`${path} L ${width} ${height} L 0 ${height} Z`} fill="url(#chartFill)" />
-      <path
-        d={path}
-        fill="none"
-        stroke={up ? "#B7FF4A" : "#FF5370"}
-        strokeLinecap="round"
-        strokeLinejoin="round"
-        strokeWidth="3.5"
-      />
-      <line x1="0" x2={width} y1={height / 2} y2={height / 2} className="sparkline-mid" />
-      {direction && <circle cx={width - 4} cy={height - ((last.value - min) / range) * height} r="5" />}
-    </svg>
+    <button className="wallet-button" type="button" onClick={auth.login}>
+      <Wallet size={17} />
+      Connect
+    </button>
   );
 }
 
 export function App() {
+  if (configurationError) {
+    return <ConfigurationErrorScreen message={configurationError} />;
+  }
+
   const game = useGameSimulation();
-  const goal = game.result ? game.result.goal : null;
-  const entryText = game.entryPrice ? formatPrice(game.entryPrice) : "--";
-  const directionLabel = game.direction ? game.direction.toUpperCase() : "NO POSITION";
-  const momentumLabel =
-    game.momentum >= 76 ? "full sprint" : game.momentum >= 48 ? "balanced run-up" : "heavy legs";
+  const auth = useAuth();
+  const audio = useArenaAudio(game.phase, game.outcome, game.shooters);
+
+  const idle = game.phase === "idle" || game.phase === "settled";
+  const opening = game.phase === "opening";
+  const trading = game.phase === "trading";
+  const settling = game.phase === "settling";
+  const closeFailed = game.phase === "closeFailed";
+  const resolving = game.phase === "resolving";
+  const noRounds = game.roundsLeft <= 0;
+  const canOpen = game.ready && game.marketReady && !noRounds;
+  const pinnedAsset = game.round
+    ? getMarketAsset(game.round.market)
+    : game.marketAsset;
+  const entryText = game.entryPrice ? formatMarketPrice(game.entryPrice, pinnedAsset) : "--";
+  const aiNames = game.rows.filter((row) => row.isAi).map((row) => row.name);
+  const seconds = (game.timeLeftMs / 1000).toFixed(1);
+  const shotClockPct = Math.max(3, Math.round(game.tradeProgress * 100));
+  const netRead = game.pnlPct >= 0 ? "open" : "covered";
+  const pnlActive = trading || closeFailed;
+  const priceDeltaPrefix = game.derived.priceDelta >= 0 ? "+" : "-";
+  const showOutcome = game.phase === "settled" && Boolean(game.outcome);
+
+  const statusText = game.requiresAuth
+    ? "Sign in to open a position."
+    : game.backendError && idle
+      ? `Connected backend unavailable: ${game.backendError}`
+      : noRounds && idle
+        ? "You are out of rounds today. Come back tomorrow."
+      : !game.marketReady && idle
+        ? game.mode === "connected"
+          ? `Waiting for live ${game.marketAsset.displayPair} before kickoff.`
+          : `Syncing ${game.marketAsset.displayPair} before kickoff.`
+      : opening
+        ? `VAR is pinning your ${game.marketAsset.displayPair} entry.`
+        : trading && !game.canCloseNow
+          ? "Waiting for the market feed before closing."
+        : trading
+          ? `Position open. Close while you are up. Auto-closes in ${seconds}s.`
+          : settling
+            ? "VAR is checking the close. Volley starts after settlement."
+          : closeFailed
+            ? "Close failed. Keep the round and retry settlement."
+            : resolving
+              ? "Shots away."
+              : game.outcome && game.phase === "settled"
+                ? game.outcome.summary
+                : "Pick Long or Short to open a position.";
+
+  const volley = game.phase === "settled"
+    ? [...game.shooters].sort((a, b) => b.goals - a.goals || b.pnlPct - a.pnlPct)
+    : [];
+  const openWithSound = (nextDirection: Direction) => {
+    audio.unlock();
+    audio.playWhistle();
+    game.openTrade(nextDirection);
+  };
+  const closeWithSound = () => {
+    audio.unlock();
+    audio.playClose();
+    game.closeNow();
+  };
 
   return (
     <main className="app-shell">
-      <section className="left-rail" aria-label="Club navigation">
+      <section className="left-rail" aria-label="Game navigation">
         <div className="brand-mark">
           <div className="brand-ball">
             <Goal size={24} />
@@ -86,28 +154,24 @@ export function App() {
         </div>
 
         <nav className="rail-nav" aria-label="Primary">
-          <a className="active" href="#arena">
+          <a className="active" href="#arena" aria-label="Arena">
             <Zap size={20} />
-            Arena
+            <span>Arena</span>
           </a>
-          <a href="#standings">
+          <a href="#standings" aria-label="Standings">
             <Trophy size={20} />
-            Standings
+            <span>Standings</span>
           </a>
-          <a href="#markets">
+          <a href="#markets" aria-label="Markets">
             <Activity size={20} />
-            Markets
-          </a>
-          <a href="#club">
-            <UserRound size={20} />
-            Club
+            <span>Markets</span>
           </a>
         </nav>
 
         <div className="rail-card">
-          <span className="rail-card-label">Season zero</span>
-          <strong>184 players + AI squads active</strong>
-          <small>AI squads are simulated and not reward eligible.</small>
+          <span className="rail-card-label">How it works</span>
+          <strong>Trade the chart. Profit earns your shots.</strong>
+          <small>Win the trade to earn open shots. Lose it and the keeper wins. AI squads are simulated and not reward eligible.</small>
         </div>
       </section>
 
@@ -118,35 +182,45 @@ export function App() {
             <h1>Penalty Perps</h1>
           </div>
           <div className="profile-strip">
-            <span className="token-chip">
-              <CircleDollarSign size={16} />
-              0 USDC
+            <span className="token-chip" title="Paper settlement only, no custody">
+              <Coins size={16} />
+              Paper
             </span>
-            <span className="token-chip active">
-              <BadgeCheck size={16} />
-              Holder
-            </span>
-            <button className="wallet-button" type="button">
-              <Wallet size={17} />
-              Wallet
+            {features.tokenGate && game.isHolder && (
+              <span className="token-chip active">
+                <BadgeCheck size={16} />
+                {env.tokenSymbol} holder
+              </span>
+            )}
+            <button
+              className={audio.enabled ? "sound-button active" : "sound-button"}
+              type="button"
+              onClick={() => audio.setEnabled(!audio.enabled)}
+              aria-label={audio.enabled ? "Mute match audio" : "Unmute match audio"}
+              title={audio.enabled ? "Mute match audio" : "Unmute match audio"}
+            >
+              {audio.enabled ? <Volume2 size={17} /> : <VolumeX size={17} />}
             </button>
+            <WalletButton />
           </div>
         </header>
 
+        {game.error && (
+          <div className="alert-banner" role="alert">
+            <AlertTriangle size={16} />
+            <span>{game.error}</span>
+          </div>
+        )}
+
         <div className="arena-card">
-          <ArenaScene
-            momentum={game.momentum}
-            phase={game.phase}
-            direction={game.direction}
-            shotZone={game.shotZone}
-            keeperZone={game.keeperZone}
-            goal={goal}
-          />
+          <Suspense fallback={<div className="arena-scene arena-loading" aria-label="Loading 3D penalty arena" />}>
+            <ArenaScene phase={game.phase} shooters={game.shooters} />
+          </Suspense>
 
           <div className="arena-hud">
             <div className="hud-pill">
-              <span>Kicks</span>
-              <strong>{game.kicksLeft}/3</strong>
+              <span>Rounds</span>
+              <strong>{game.roundsLeft}/{RULES.dailyRounds}</strong>
             </div>
             <div className="hud-pill">
               <span>Streak</span>
@@ -158,91 +232,141 @@ export function App() {
             </div>
           </div>
 
-          <div className="momentum-panel">
-            <div className="momentum-copy">
-              <span>{directionLabel}</span>
-              <strong>{momentumLabel}</strong>
-            </div>
-            <div className="momentum-track">
-              <div style={{ width: `${game.momentum}%` }} />
-            </div>
-          </div>
+          <TradeTicker
+            price={game.derived.price}
+            asset={game.marketAsset}
+            aiNames={aiNames}
+            active={game.marketReady}
+          />
         </div>
 
-        <section className="kick-controls" aria-label="Penalty controls">
-          <div className="shot-zone-group">
-            {(["left", "center", "right"] as ShotZone[]).map((zone) => (
-              <button
-                className={game.shotZone === zone ? "selected" : ""}
-                key={zone}
-                type="button"
-                onClick={() => game.setShotZone(zone)}
-              >
-                {zone}
-              </button>
-            ))}
-          </div>
-          <button
-            className="primary-action"
-            type="button"
-            onClick={game.takeKick}
-            disabled={game.phase === "kicking" || game.kicksLeft <= 0}
-          >
-            <Goal size={21} />
-            {game.phase === "kicking" ? "Run-up locked" : "Take penalty"}
-          </button>
-          <button className="icon-action" type="button" onClick={game.resetRound} aria-label="Reset market call">
-            <RefreshCcw size={20} />
-          </button>
-        </section>
+        <div className={trading ? "round-bar live" : "round-bar"} aria-live="polite">
+          <Activity size={15} />
+          <span>{statusText}</span>
+        </div>
       </section>
 
       <aside className="right-stack">
         <section className="market-slip" id="markets">
           <div className="section-heading">
             <div>
-              <span className="eyebrow">Paper SOL-PERP</span>
-              <h2>Live tape</h2>
+              <span className="eyebrow">Paper {game.marketAsset.displayPair} · {feedLabel(game.feedStatus)}</span>
+              <h2>Trade dock</h2>
             </div>
             <span className={game.derived.priceDelta >= 0 ? "price up" : "price down"}>
-              {game.derived.priceDelta >= 0 ? "+" : ""}
-              {game.derived.priceDelta.toFixed(2)}
+              {priceDeltaPrefix}
+              {formatMarketPrice(Math.abs(game.derived.priceDelta), game.marketAsset)}
             </span>
           </div>
 
-          <Sparkline points={game.market} direction={game.direction} />
+          <Candles
+            points={game.market}
+            entryPrice={game.entryPrice}
+            asset={game.marketAsset}
+          />
 
           <div className="market-meta">
             <div>
               <span>Mark</span>
-              <strong>${formatPrice(game.derived.price)}</strong>
+              <strong>${formatMarketPrice(game.derived.price, game.marketAsset)}</strong>
             </div>
             <div>
               <span>Entry</span>
               <strong>${entryText}</strong>
             </div>
             <div>
-              <span>Momentum</span>
-              <strong>{Math.round(game.momentum)}</strong>
+              <span>PnL</span>
+              <strong className={pnlActive ? (game.pnlPct >= 0 ? "pnl up" : "pnl down") : ""}>
+                {pnlActive ? `${game.pnlPct >= 0 ? "+" : ""}${game.pnlPct.toFixed(2)}%` : "--"}
+              </strong>
             </div>
           </div>
 
-          <div className="direction-grid">
-            <button
-              className={game.direction === "long" ? "long selected" : "long"}
-              type="button"
-              onClick={() => game.lockDirection("long")}
+          <PnlGauge
+            pnlPct={game.pnlPct}
+            active={pnlActive}
+            subLabel={pnlActive ? (game.direction ? game.direction.toUpperCase() : "POSITION") : "FLAT"}
+          />
+
+          {trading && (
+            <div
+              className={game.pnlPct >= 0 ? "pressure-strip up" : "pressure-strip down"}
+              role="group"
+              aria-label={`Shot clock ${seconds} seconds remaining`}
             >
-              Long
+              <div className="pressure-copy">
+                <span>Shot clock</span>
+                <strong>{seconds}s</strong>
+              </div>
+              <div
+                className="pressure-track"
+                role="progressbar"
+                aria-label="Shot clock elapsed"
+                aria-valuemin={0}
+                aria-valuemax={100}
+                aria-valuenow={shotClockPct}
+              >
+                <span style={{ width: `${shotClockPct}%` }} />
+              </div>
+              <div className="pressure-copy right">
+                <span>Net read</span>
+                <strong>{netRead}</strong>
+              </div>
+            </div>
+          )}
+
+          {game.requiresAuth ? (
+            <button className="primary-action full" type="button" onClick={auth.login}>
+              <Wallet size={18} />
+              Sign in to play
             </button>
+          ) : opening ? (
+            <button className="primary-action full" type="button" disabled aria-busy="true">
+              Pinning {game.marketAsset.symbol} entry
+            </button>
+          ) : trading ? (
             <button
-              className={game.direction === "short" ? "short selected" : "short"}
+              className={game.pnlPct >= 0 ? "close-action up" : "close-action down"}
               type="button"
-              onClick={() => game.lockDirection("short")}
+              onClick={closeWithSound}
+              disabled={!game.canCloseNow}
             >
-              Short
+              {game.canCloseNow
+                ? `Close ${game.pnlPct >= 0 ? "+" : ""}${game.pnlPct.toFixed(2)}% · ${seconds}s`
+                : `Live feed syncing · ${seconds}s`}
             </button>
-          </div>
+          ) : settling ? (
+            <button className="primary-action full" type="button" disabled aria-busy="true">
+              Checking close
+            </button>
+          ) : closeFailed ? (
+            <button className="close-action down" type="button" onClick={closeWithSound}>
+              Retry close
+            </button>
+          ) : resolving ? (
+            <button className="primary-action full" type="button" disabled aria-busy="true">
+              Shots away
+            </button>
+          ) : (
+            <div className="direction-grid" role="group" aria-label="Open a position">
+              <button
+                className="long"
+                type="button"
+                disabled={!canOpen}
+                onClick={() => openWithSound("long")}
+              >
+                Long
+              </button>
+              <button
+                className="short"
+                type="button"
+                disabled={!canOpen}
+                onClick={() => openWithSound("short")}
+              >
+                Short
+              </button>
+            </div>
+          )}
 
           <div className="disclosure-row">
             <Lock size={14} />
@@ -252,32 +376,69 @@ export function App() {
 
         <section className="result-ticket">
           <div className="ticket-top">
-            <span>Kick ticket</span>
-            <strong>{game.result ? (game.result.goal ? "GOAL" : "SAVED") : "OPEN"}</strong>
+            <span>Round ticket</span>
+            <strong>
+              {showOutcome && game.outcome
+                ? game.outcome.shots <= 0
+                  ? "NO KICK"
+                  : game.outcome.goals > 0
+                    ? "GOAL"
+                    : "SAVED"
+                : trading
+                  ? "LIVE"
+                  : settling
+                    ? "VAR"
+                    : resolving
+                    ? "SHOTS"
+                  : "OPEN"}
+            </strong>
           </div>
-          {game.result ? (
+          {showOutcome && game.outcome ? (
             <div className="result-body">
-              <h2>{game.result.saveText}</h2>
+              <h2>{game.outcome.summary}</h2>
               <dl>
                 <div>
-                  <dt>Shot</dt>
-                  <dd>{game.result.shotPoints}</dd>
+                  <dt>PnL</dt>
+                  <dd className={game.outcome.pnlPct >= 0 ? "pnl up" : "pnl down"}>
+                    {game.outcome.pnlPct >= 0 ? "+" : ""}
+                    {game.outcome.pnlPct.toFixed(2)}%
+                  </dd>
                 </div>
                 <div>
-                  <dt>Market</dt>
-                  <dd>{game.result.marketPoints}</dd>
+                  <dt>Shots</dt>
+                  <dd>{game.outcome.shots}</dd>
                 </div>
                 <div>
-                  <dt>Streak</dt>
-                  <dd>{game.result.streakBonus}</dd>
+                  <dt>Goals</dt>
+                  <dd>{game.outcome.goals}</dd>
                 </div>
               </dl>
-              <p>+{game.result.points} points</p>
+              <p>+{game.outcome.points} points</p>
+              {volley.length > 1 && (
+                <div className="volley-list">
+                  {volley.map((s) => (
+                    <div className={s.isYou ? "volley-row you" : "volley-row"} key={s.id}>
+                      <span className="volley-name">
+                        {s.isYou ? "You" : s.name.replace(/^AI (Squad|Keeper): /, "")}
+                      </span>
+                      <span className="volley-goals">{s.goals} G</span>
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
           ) : (
             <div className="empty-ticket">
-              <Shield size={28} />
-              <p>Lock a side, let the chart move, then send the kick.</p>
+              <Goal size={26} />
+              <p>
+                {game.requiresAuth
+                  ? "Sign in, open a position, then close while you are up."
+                  : settling
+                    ? "Settlement is being checked. The volley starts next."
+                  : resolving
+                    ? "Watch the keeper. Shots are resolving."
+                  : "Open a position, ride the chart, then close while you are up."}
+              </p>
             </div>
           )}
         </section>

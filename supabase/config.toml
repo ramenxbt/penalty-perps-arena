@@ -1,0 +1,13 @@
+project_id = "penalty-perps-arena"
+
+[functions.profile]
+verify_jwt = false
+
+[functions.leaderboard]
+verify_jwt = false
+
+[functions.open-trade]
+verify_jwt = false
+
+[functions.close-trade]
+verify_jwt = false

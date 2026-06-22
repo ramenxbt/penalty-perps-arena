@@ -1,10 +1,19 @@
 import React from "react";
 import { createRoot } from "react-dom/client";
 import { App } from "./App";
+import { AppAuthProvider } from "./auth/AuthContext";
+import { ErrorBoundary } from "./components/ErrorBoundary";
 import "./styles.css";
 
-createRoot(document.getElementById("root") as HTMLElement).render(
+const container = document.getElementById("root");
+if (!container) throw new Error("Root element #root not found");
+
+createRoot(container).render(
   <React.StrictMode>
-    <App />
+    <ErrorBoundary>
+      <AppAuthProvider>
+        <App />
+      </AppAuthProvider>
+    </ErrorBoundary>
   </React.StrictMode>,
 );
