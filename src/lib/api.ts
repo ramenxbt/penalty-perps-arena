@@ -60,6 +60,9 @@ export interface GameApi {
     onSnapshot: (snapshot: LeaderboardSnapshot) => void,
     onError?: (error: unknown) => void,
   ): () => void;
+  /** Reset the per-match round allotment so a new cup run can begin (local mode only;
+   * connected mode keeps the server-authoritative daily cap and just returns the profile). */
+  resetForMatch(): Promise<PlayerProfile>;
   /** Open a position; pins entry price and starts the trade window. */
   openTrade(input: OpenTradeInput): Promise<TradeRound>;
   /** Close (manually or via auto-close) and resolve the volley. */

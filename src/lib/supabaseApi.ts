@@ -44,6 +44,11 @@ export class SupabaseGameApi implements GameApi {
     return this.invoke<LeaderboardSnapshot>("leaderboard");
   }
 
+  resetForMatch(): Promise<PlayerProfile> {
+    // Connected mode keeps the server-authoritative daily cap; just refetch the profile.
+    return this.loadProfile();
+  }
+
   subscribeLeaderboard(
     onSnapshot: (snapshot: LeaderboardSnapshot) => void,
     onError?: (error: unknown) => void,

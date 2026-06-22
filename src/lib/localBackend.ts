@@ -63,6 +63,13 @@ export class LocalGameApi implements GameApi {
     return this.snapshot();
   }
 
+  async resetForMatch(): Promise<PlayerProfile> {
+    // Local paper mode: refill the round allotment so the player can run another cup.
+    this.openRound = null;
+    this.profile = { ...this.profile, attemptsRemaining: RULES.matchRounds };
+    return { ...this.profile };
+  }
+
   subscribeLeaderboard(onSnapshot: (snapshot: LeaderboardSnapshot) => void, _onError?: (error: unknown) => void): () => void {
     this.subscribers.add(onSnapshot);
     onSnapshot(this.snapshot());

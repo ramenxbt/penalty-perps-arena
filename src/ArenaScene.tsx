@@ -110,7 +110,7 @@ export function ArenaScene({ phase, shooters, hud }: ArenaSceneProps) {
         ? you.goals > 1
           ? `${you.goals} GOALS`
           : "GOAL"
-        : "SAVED"
+        : "BLOCKED"
     : "";
   const flashClass = you && you.goals > 0 ? "is-goal" : "is-saved";
 

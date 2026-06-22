@@ -12,6 +12,8 @@ import { Direction, MarketPoint, MarketSymbol, RoundOutcome } from "./types";
 export const RULES = {
   /** Rounds allowed per player per UTC day. */
   dailyRounds: 5,
+  /** Rounds in one match / cup run (mirrors the daily allotment). */
+  matchRounds: 5,
   /** How long an open position runs before it auto-closes (ms). */
   tradeWindowMs: 12000,
   basePointsPerGoal: 100,
@@ -92,7 +94,7 @@ export function roundPoints(goals: number, pnlPct: number, streak: number): numb
 
 export function roundSummary(pnlPct: number, shots: number, goals: number): string {
   if (shots === 0) return "Liquidated before the whistle. No kick.";
-  if (goals === 0) return "Keeper read the tape. Saved.";
+  if (goals === 0) return "Keeper read the tape. Blocked.";
   if (goals >= shots && shots >= 2) return "Clean sweep. Net ripped.";
   if (pnlPct <= 0) return "Scrappy finish off a losing trade.";
   return goals === 1 ? "Buried it. Market read held." : "Brace. Two on the board.";

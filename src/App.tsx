@@ -14,15 +14,17 @@ import {
 } from "lucide-react";
 import { lazy, Suspense } from "react";
 import { Candles } from "./components/Candles";
+import { LobbyPanel } from "./components/LobbyPanel";
+import { MatchResults } from "./components/MatchResults";
 import { PnlGauge } from "./components/PnlGauge";
+import { RoundBreak } from "./components/RoundBreak";
 import { TradeTicker } from "./components/TradeTicker";
 import { useAuth, truncateAddress } from "./auth/AuthContext";
 import { configurationError, env, features } from "./config/env";
-import { RULES } from "./game/engine";
 import { formatMarketPrice, getMarketAsset } from "./game/markets";
 import { Direction } from "./game/types";
 import { useArenaAudio } from "./hooks/useArenaAudio";
-import { useGameSimulation } from "./hooks/useGameSimulation";
+import { useSession } from "./hooks/useSession";
 
 const ArenaScene = lazy(() => import("./ArenaScene").then((module) => ({ default: module.ArenaScene })));
 
@@ -76,9 +78,16 @@ export function App() {
     return <ConfigurationErrorScreen message={configurationError} />;
   }
 
-  const game = useGameSimulation();
+  const game = useSession();
   const auth = useAuth();
   const audio = useArenaAudio(game.phase, game.outcome, game.shooters);
+
+  const inLobby = game.sessionPhase === "lobby";
+  const inCountdown = game.sessionPhase === "countdown";
+  const inMatch = game.sessionPhase === "in_match";
+  const inBreak = game.sessionPhase === "round_break";
+  const inResults = game.sessionPhase === "match_results";
+  const showArena = inCountdown || inMatch || inBreak;
 
   const idle = game.phase === "idle" || game.phase === "settled";
   const opening = game.phase === "opening";
@@ -87,7 +96,17 @@ export function App() {
   const closeFailed = game.phase === "closeFailed";
   const resolving = game.phase === "resolving";
   const noRounds = game.roundsLeft <= 0;
-  const canOpen = game.ready && game.marketReady && !noRounds;
+  const canOpen = game.ready && game.marketReady && !noRounds && inMatch;
+
+  const standRows = game.participants.map((p) => ({
+    id: p.id,
+    rank: p.standing,
+    name: p.name,
+    goals: p.matchGoals,
+    points: p.matchPoints,
+    isYou: p.isYou,
+    isAi: p.isAi,
+  }));
   const pinnedAsset = game.round
     ? getMarketAsset(game.round.market)
     : game.marketAsset;
@@ -212,48 +231,102 @@ export function App() {
           </div>
         )}
 
-        <div className="arena-card">
-          <Suspense fallback={<div className="arena-scene arena-loading" aria-label="Loading 3D penalty arena" />}>
-            <ArenaScene
-              phase={game.phase}
-              shooters={game.shooters}
-              hud={{
-                score: game.score,
-                rounds: game.roundsLeft,
-                roundsMax: RULES.dailyRounds,
-                streak: game.streak,
-                market: game.marketAsset.displayPair,
-              }}
-            />
-          </Suspense>
-
-          <div className="arena-hud">
-            <div className="hud-pill">
-              <span>Rounds</span>
-              <strong>{game.roundsLeft}/{RULES.dailyRounds}</strong>
-            </div>
-            <div className="hud-pill">
-              <span>Streak</span>
-              <strong>{game.streak}</strong>
-            </div>
-            <div className="hud-pill">
-              <span>Score</span>
-              <strong>{game.score.toLocaleString()}</strong>
-            </div>
-          </div>
-
-          <TradeTicker
-            price={game.derived.price}
-            asset={game.marketAsset}
-            aiNames={aiNames}
-            active={game.marketReady}
+        {inLobby ? (
+          <LobbyPanel
+            field={game.lobbyField.map((p) => ({
+              id: p.id,
+              name: p.name,
+              avatar: p.avatar,
+              isYou: p.isYou,
+              isAi: p.isAi,
+              isHolder: p.isHolder,
+            }))}
+            roundsLeft={game.roundsLeft}
+            roundsMax={game.matchRounds}
+            market={game.marketAsset.displayPair}
+            seed={game.seed}
+            ready={game.ready && game.marketReady}
+            outOfRounds={game.outOfRounds}
+            onEnter={game.startMatch}
           />
-        </div>
+        ) : inResults && game.matchResult ? (
+          <MatchResults
+            placement={game.matchResult.placement}
+            fieldSize={game.matchResult.fieldSize}
+            summary={game.matchResult.summary}
+            totals={game.matchResult.totals}
+            bestRound={game.matchResult.bestRound}
+            seasonDelta={game.matchResult.seasonDelta}
+            standings={standRows}
+            roundsLeft={game.roundsLeft}
+            outOfRounds={game.outOfRounds}
+            onPlayAgain={game.findNewMatch}
+          />
+        ) : (
+          <div className="arena-card">
+            <Suspense fallback={<div className="arena-scene arena-loading" aria-label="Loading 3D penalty arena" />}>
+              <ArenaScene
+                phase={game.phase}
+                shooters={game.shooters}
+                hud={{
+                  score: game.score,
+                  rounds: game.roundNumber,
+                  roundsMax: game.matchRounds,
+                  streak: game.streak,
+                  market: game.marketAsset.displayPair,
+                }}
+              />
+            </Suspense>
 
-        <div className={trading ? "round-bar live" : "round-bar"} aria-live="polite">
-          <Activity size={15} />
-          <span>{statusText}</span>
-        </div>
+            <div className="arena-hud">
+              <div className="hud-pill">
+                <span>Round</span>
+                <strong>{game.roundNumber}/{game.matchRounds}</strong>
+              </div>
+              <div className="hud-pill">
+                <span>Streak</span>
+                <strong>{game.streak}</strong>
+              </div>
+              <div className="hud-pill">
+                <span>Score</span>
+                <strong>{game.score.toLocaleString()}</strong>
+              </div>
+            </div>
+
+            <TradeTicker
+              price={game.derived.price}
+              asset={game.marketAsset}
+              aiNames={aiNames}
+              active={game.marketReady}
+            />
+
+            {inCountdown && (
+              <div className="countdown-overlay" aria-hidden="true">
+                <span>Round {game.roundNumber} of {game.matchRounds}</span>
+                <strong>Kickoff</strong>
+              </div>
+            )}
+
+            {inBreak && (
+              <RoundBreak
+                round={game.roundNumber}
+                totalRounds={game.matchRounds}
+                standings={standRows}
+                isFinal={game.isFinalRound}
+                onNext={game.advanceRound}
+              />
+            )}
+          </div>
+        )}
+
+        {showArena && (
+          <div className={trading ? "round-bar live" : "round-bar"} aria-live="polite">
+            <Activity size={15} />
+            <span>
+              {inCountdown ? `Round ${game.roundNumber} of ${game.matchRounds}. Get ready.` : statusText}
+            </span>
+          </div>
+        )}
       </section>
 
       <aside className="right-stack">
@@ -393,7 +466,7 @@ export function App() {
                   ? "NO KICK"
                   : game.outcome.goals > 0
                     ? "GOAL"
-                    : "SAVED"
+                    : "BLOCKED"
                 : trading
                   ? "LIVE"
                   : settling
@@ -456,7 +529,7 @@ export function App() {
         <section className="leaderboard" id="standings">
           <div className="section-heading">
             <div>
-              <span className="eyebrow">Daily cup</span>
+              <span className="eyebrow">Season standing</span>
               <h2>Standings</h2>
             </div>
             <Trophy size={22} />

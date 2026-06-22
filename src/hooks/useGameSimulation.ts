@@ -238,6 +238,14 @@ export function useGameSimulation() {
     if (round) closeRound(round);
   }, [closeRound, round]);
 
+  const resetForMatch = useCallback(() => {
+    if (!api) return;
+    api
+      .resetForMatch()
+      .then((p) => mountedRef.current && setProfile(p))
+      .catch(() => {});
+  }, [api]);
+
   const resetRound = useCallback(() => {
     if (busy) return;
     setDirection(null);
@@ -328,5 +336,6 @@ export function useGameSimulation() {
     openTrade,
     closeNow,
     resetRound,
+    resetForMatch,
   };
 }
