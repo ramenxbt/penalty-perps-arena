@@ -82,6 +82,8 @@ export type BoardRow = {
   isAi: boolean;
   isHolder: boolean;
   movement: number;
+  /** For recurring AI rivals: a short trading-personality tag shown in the lobby. */
+  tendency?: string;
 };
 
 export type LeaderboardSnapshot = {

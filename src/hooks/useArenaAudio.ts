@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { RoundOutcome, RoundPhase, Shooter } from "../game/types";
-import { arrangeShooters, SHOT_BEAT_MS, visibleVolleyAttempts, VOLLEY_LEAD_IN_MS } from "../game/volley";
+import { playerVolleyAttempts, SOLO_BEAT_MS, VOLLEY_LEAD_IN_MS } from "../game/volley";
 
 const STORAGE_KEY = "penalty-perps-audio";
 
@@ -131,7 +131,7 @@ export function useArenaAudio(phase: RoundPhase, outcome: RoundOutcome | null, s
       return;
     }
 
-    visibleVolleyAttempts(arrangeShooters(shooters)).forEach((attempt, index) => {
+    playerVolleyAttempts(shooters).forEach((attempt, index) => {
       const timer = window.setTimeout(() => {
         if (attempt.noKick) {
           tone({ frequency: 110, duration: 0.16, gain: 0.035, type: "sawtooth" });
@@ -140,7 +140,7 @@ export function useArenaAudio(phase: RoundPhase, outcome: RoundOutcome | null, s
         tone({ frequency: 76, duration: 0.09, gain: 0.13, type: "sine" });
         tone({ frequency: attempt.scored ? 520 : 220, duration: 0.14, gain: 0.035, type: "triangle", delay: 0.08 });
         if (attempt.scored) noise(0.32, 0.035, 0.12);
-      }, VOLLEY_LEAD_IN_MS + index * SHOT_BEAT_MS);
+      }, VOLLEY_LEAD_IN_MS + index * SOLO_BEAT_MS);
       timersRef.current.push(timer);
     });
     lastPhaseRef.current = phase;

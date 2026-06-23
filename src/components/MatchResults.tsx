@@ -4,7 +4,9 @@
  * Shows finishing placement, run stats, season delta, the final standings
  * board, and a play-again CTA. Dark "trading terminal meets iOS arcade" look.
  */
-import { Trophy } from "lucide-react";
+import { useState } from "react";
+import { Check, Share2, Trophy } from "lucide-react";
+import { buildShareCard, copyCanvasToClipboard, downloadCanvas } from "../lib/shareCard";
 
 type StandingRow = {
   id: string;
@@ -61,6 +63,22 @@ export function MatchResults(props: {
     outOfRounds,
     onPlayAgain,
   } = props;
+
+  const [shared, setShared] = useState<"idle" | "copied" | "saved">("idle");
+
+  const onShare = async () => {
+    const canvas = buildShareCard({
+      placement,
+      fieldSize,
+      ordinal: ordinal(placement),
+      points: totals.points,
+      goals: totals.goals,
+    });
+    const copied = await copyCanvasToClipboard(canvas);
+    if (!copied) downloadCanvas(canvas, "penalty-perps-result.png");
+    setShared(copied ? "copied" : "saved");
+    window.setTimeout(() => setShared("idle"), 2600);
+  };
 
   const heroClass =
     "placement-hero" +
@@ -147,8 +165,12 @@ export function MatchResults(props: {
         >
           {outOfRounds ? "Out of rounds today" : "Play again"}
         </button>
+        <button className="ghost-action full" type="button" onClick={onShare}>
+          {shared === "idle" ? <Share2 size={16} /> : <Check size={16} />}
+          {shared === "copied" ? "Copied to clipboard" : shared === "saved" ? "Image saved" : "Share result card"}
+        </button>
         <span className="cta-note">
-          {outOfRounds ? "New rounds unlock tomorrow." : "Fresh 5-round cup ready"}
+          {outOfRounds ? "New rounds unlock tomorrow." : "Fresh cup ready"}
         </span>
       </div>
     </section>

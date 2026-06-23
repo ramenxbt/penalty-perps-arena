@@ -4,6 +4,7 @@ import {
   BadgeCheck,
   Bot,
   Coins,
+  Flame,
   Goal,
   Lock,
   Trophy,
@@ -101,8 +102,8 @@ export function App() {
           needsConnect
             ? "Connect a wallet, email, or X to compete on the season ladder. No deposits, paper only."
             : auth.isAuthenticated
-              ? `Signed in as ${auth.user?.displayName ?? "player"}. Cup run: 5 rounds against the field.`
-              : "Jump in as a guest. Cup run: 5 rounds against the field, paper only."
+              ? `Signed in as ${auth.user?.displayName ?? "player"}. Cup run: ${game.matchRounds} rounds against the field.`
+              : `Jump in as a guest. Cup run: ${game.matchRounds} rounds against the field, paper only.`
         }
         onCta={needsConnect ? auth.login : game.enterLobby}
       />
@@ -262,6 +263,7 @@ export function App() {
               isYou: p.isYou,
               isAi: p.isAi,
               isHolder: p.isHolder,
+              tendency: p.tendency,
             }))}
             roundsLeft={game.roundsLeft}
             roundsMax={game.matchRounds}
@@ -305,9 +307,18 @@ export function App() {
                 <span>Round</span>
                 <strong>{game.roundNumber}/{game.matchRounds}</strong>
               </div>
-              <div className="hud-pill">
-                <span>Streak</span>
-                <strong>{game.streak}</strong>
+              <div
+                className={
+                  "hud-pill streak-pill" +
+                  (game.streak >= 2 ? " on-fire" : "") +
+                  (game.streak >= 4 ? " blaze" : "")
+                }
+              >
+                <span>{game.streak >= 4 ? "On fire" : "Streak"}</span>
+                <strong>
+                  {game.streak >= 2 && <Flame size={13} aria-hidden="true" />}
+                  {game.streak}
+                </strong>
               </div>
               <div className="hud-pill">
                 <span>Score</span>

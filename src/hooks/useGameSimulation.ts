@@ -287,8 +287,8 @@ export function useGameSimulation() {
 
   // Live "shot power": what the current trade would bank right now. Drives the meter.
   const power = resolveShots(pnlPct);
-  const POWER_MIN = -0.05;
-  const POWER_MAX = 0.1;
+  const POWER_MIN = -20;
+  const POWER_MAX = 55;
   const powerRatio = Math.max(0, Math.min(1, (pnlPct - POWER_MIN) / (POWER_MAX - POWER_MIN)));
 
   // The roster shown at rest (idle/trading); replaced by real results during the volley.

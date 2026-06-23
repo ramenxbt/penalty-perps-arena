@@ -154,5 +154,11 @@ export function createGoal(width: number, height: number, depth: number): THREE.
   frontLip.position.set(0, height - lipH / 2, -0.06);
   group.add(frontLip);
 
+  // Expose the back net + its shared material so the arena can ripple/flash it on a goal.
+  group.userData.backNet = backNet;
+  group.userData.netMat = netMat;
+  group.userData.netBaseZ = backNet.position.z;
+  group.userData.netBaseOpacity = netMat.opacity;
+
   return group;
 }

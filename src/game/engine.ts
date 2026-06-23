@@ -12,25 +12,43 @@ import { Direction, MarketPoint, MarketSymbol, RoundOutcome } from "./types";
 export const RULES = {
   /** Rounds allowed per player per UTC day. */
   dailyRounds: 5,
-  /** Rounds in one match / cup run (mirrors the daily allotment). */
-  matchRounds: 5,
+  /** Rounds in one match / cup run. A short three-round cup keeps a run punchy. */
+  matchRounds: 3,
   /** How long an open position runs before it auto-closes (ms). */
   tradeWindowMs: 12000,
   basePointsPerGoal: 100,
   seedPrice: 162.42,
   /**
    * Realized PnL % (raw price move, no leverage) -> earned shots + net openness,
-   * richest tier first. Calibrated to the small moves you can catch by closing on a
-   * favorable wiggle within the trade window. A small loss still earns one near-hopeless
-   * shot; a real loss earns nothing. Tunable; the server must mirror these thresholds.
+   * richest tier first. Calibrated to the lively arena feed (see GAME_VOL_PCT): a typical
+   * favorable swing you can catch by closing on the right wiggle is ~0.1-0.25%, so three
+   * shots is earned by good timing, not automatic. A small loss still earns one
+   * near-hopeless shot; a real loss earns nothing. The server must mirror these thresholds.
    */
   tiers: [
-    { minPnl: 0.08, shots: 3, openness: 0.9 },
-    { minPnl: 0.035, shots: 2, openness: 0.7 },
-    { minPnl: 0.008, shots: 1, openness: 0.5 },
-    { minPnl: -0.035, shots: 1, openness: 0.15 },
+    { minPnl: 40, shots: 3, openness: 0.9 },
+    { minPnl: 15, shots: 2, openness: 0.7 },
+    { minPnl: 4, shots: 1, openness: 0.5 },
+    { minPnl: -15, shots: 1, openness: 0.15 },
   ] as const,
 } as const;
+
+/**
+ * Per-tick volatility of the arena chart, as a fraction of price. The arena series is a wild,
+ * memecoin-style random walk tethered loosely to the live market price: the live price seeds
+ * and anchors it, but inside a trade window it swings tens (sometimes hundreds) of percent so
+ * timing the close is dramatic. PnL is taken on this arena series, so the tiers above are in
+ * whole-percent terms. See useMarketFeed and nextArenaPrice.
+ */
+export const GAME_VOL_PCT = 0.09;
+/** How fast the arena price ticks (ms). */
+export const ARENA_TICK_MS = 500;
+/**
+ * How strongly the arena price is pulled back toward the live market each tick (0-1). Kept
+ * low so the walk can wander tens (sometimes hundreds) of percent from the anchor before the
+ * mean reversion reels it back, instead of hugging the live price.
+ */
+export const ARENA_TETHER = 0.02;
 
 const TIER_EPSILON = 1e-9;
 
@@ -53,6 +71,33 @@ export function nextPrice(points: MarketPoint[], volatility = 0.72): MarketPoint
   const shock = (Math.random() - 0.48) * volatility;
   const next = Math.max(0.01, last + trend + shock);
   return [...points.slice(-71), { value: next, time: Date.now() }];
+}
+
+/**
+ * Build a pre-rolled arena series around a seed price so the chart opens lively, not flat.
+ */
+export function createArenaSeed(seed: number = RULES.seedPrice, endTime = Date.now()): MarketPoint[] {
+  let value = seed;
+  const points: MarketPoint[] = [];
+  for (let i = 0; i < 34; i += 1) {
+    points.push({ value: Math.max(0.01, value), time: endTime - (33 - i) * ARENA_TICK_MS });
+    value = nextArenaPrice(value, seed);
+  }
+  return points;
+}
+
+/**
+ * Next arena price: a wild random walk tethered to the live market `anchor`. The tether
+ * mean-reverts toward the real price so the walk never runs to zero or infinity; the large
+ * per-tick shock makes the chart swing tens (sometimes hundreds) of percent inside a trade
+ * window. Bounded to a wide band around the anchor as a hard safety net.
+ */
+export function nextArenaPrice(prev: number, anchor: number, volPct = GAME_VOL_PCT): number {
+  const base = Math.max(0.01, anchor);
+  const pull = (base - prev) * ARENA_TETHER;
+  const shock = (Math.random() - 0.5) * Math.max(prev, base) * volPct * 2;
+  const next = prev + pull + shock;
+  return Math.min(base * 15, Math.max(base * 0.05, next));
 }
 
 /** Realized PnL %, signed by direction (no leverage). */
@@ -87,7 +132,9 @@ export function rollGoals(shots: number, openness: number, rng: () => number = M
 
 export function roundPoints(goals: number, pnlPct: number, streak: number): number {
   const goalPoints = goals * RULES.basePointsPerGoal;
-  const profitBonus = Math.max(0, Math.round(pnlPct * 500));
+  // pnlPct is now whole-percent (tens of %), so a smaller multiplier keeps the profit bonus
+  // in the same ballpark as goal points instead of dwarfing them.
+  const profitBonus = Math.max(0, Math.round(pnlPct * 5));
   const streakBonus = goals > 0 ? Math.min(60, streak * 10) : 0;
   return Math.max(0, goalPoints + profitBonus + streakBonus);
 }

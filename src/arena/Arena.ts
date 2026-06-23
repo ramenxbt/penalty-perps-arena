@@ -10,7 +10,7 @@
 
 import * as THREE from "three";
 import { RoundPhase, Shooter } from "../game/types";
-import { arrangeShooters, FLIGHT_MS, SHOT_BEAT_MS, VOLLEY_LEAD_IN_MS } from "../game/volley";
+import { arrangeShooters, FLIGHT_MS, SOLO_BEAT_MS, VOLLEY_LEAD_IN_MS } from "../game/volley";
 import { CameraRig } from "./CameraRig";
 import { createCritter, critterKindForIndex } from "./Critter";
 import { createGoal } from "./Goal";
@@ -65,13 +65,31 @@ export class Arena {
   private flashStrength = 0;
   private keeperPulseAt = -10;
 
+  // Solo shootout: only the player kicks. Each earned shot picks a fresh random spot in the
+  // goal mouth so placement varies shot to shot.
+  private goalMouth = 3;
+  private shotPlacements: number[] = [];
+
+  // Net ripple: a decaying impulse that bulges + lights the netting when a goal lands.
+  private backNet: THREE.LineSegments | null = null;
+  private netMat: THREE.LineBasicMaterial | null = null;
+  private netBaseZ = 0;
+  private netBaseOpacity = 0.42;
+  private netRipple = 0;
+
   constructor(scene: THREE.Scene, quality: QualitySettings, initial: Shooter[]) {
     const arranged = arrangeShooters(initial.length ? initial : [{ id: "me", name: "@you", isYou: true, isAi: false, pnlPct: 0, shots: 0, goals: 0, openness: 0 }]);
     const count = Math.max(1, arranged.length);
     const center = Math.max(0, arranged.findIndex((s) => s.isYou));
     const goalW = Math.max(6.4, (count - 1) * SPACING + 4.5);
 
-    scene.add(createGoal(goalW, GOAL_H, GOAL_DEPTH).translateZ(GOAL_Z));
+    const goal = createGoal(goalW, GOAL_H, GOAL_DEPTH).translateZ(GOAL_Z);
+    this.goalMouth = Math.max(1.6, goalW / 2 - 1.2);
+    scene.add(goal);
+    this.backNet = (goal.userData.backNet as THREE.LineSegments) ?? null;
+    this.netMat = (goal.userData.netMat as THREE.LineBasicMaterial) ?? null;
+    this.netBaseZ = (goal.userData.netBaseZ as number) ?? 0;
+    this.netBaseOpacity = (goal.userData.netBaseOpacity as number) ?? 0.42;
 
     this.keeper = createKeeper();
     this.keeperBaseScale = this.keeper.scale.x;
@@ -135,6 +153,8 @@ export class Arena {
       if (phase === "resolving") {
         this.resolveStart = elapsedSec;
         this.resolved.clear();
+        // Fresh random placement for each of the (up to three) earned shots.
+        this.shotPlacements = Array.from({ length: 3 }, () => (Math.random() * 2 - 1) * this.goalMouth);
       }
       if (phase === "idle" || phase === "trading" || phase === "opening") this.resolveStart = -1;
       // Rack a clean slate the instant a new round opens (or on a manual reset): snap every
@@ -153,79 +173,125 @@ export class Arena {
     let keeperHop = 0;
     let keeperLean = 0;
 
-    this.lanes.forEach((lane, i) => {
+    this.lanes.forEach((lane) => {
       const shooter = shooters.find((s) => s.id === lane.id);
-      const scored = !!shooter && shooter.goals > 0;
-      const noKick = !shooter || shooter.shots <= 0;
-      const shotAtMs = VOLLEY_LEAD_IN_MS + i * SHOT_BEAT_MS;
-      const p = resolving ? easeOut(clamp01((sinceMs - shotAtMs) / FLIGHT_MS)) : 0;
-      // After the flight lands, settleQ runs 0 -> 1 so the ball drops and rolls to rest
-      // instead of hovering and spinning forever.
-      const settleQ = resolving && !noKick ? clamp01((sinceMs - shotAtMs - FLIGHT_MS) / SETTLE_MS) : 0;
+      const critterBaseZ = REST_Z + 0.62;
+      const bobY = Math.sin(elapsedSec * 2 + lane.laneX) * 0.02;
 
-      if (resolving && !noKick && sinceMs >= shotAtMs) {
-        if (scored) {
+      // AI rivals are spectators in the solo shootout: hold their spot with a gentle idle bob
+      // and slow spin, never kicking. Their results live on the scoreboard, not in 3D.
+      if (!lane.isYou) {
+        const homeY = lane.radius + Math.sin(elapsedSec * 2 + lane.laneX) * 0.015;
+        this.tmp.set(lane.laneX, homeY, REST_Z);
+        lane.ball.position.lerp(this.tmp, homeK);
+        lane.ball.rotation.y += 0.006;
+        lane.ball.rotation.x += 0.002;
+        lane.critter.position.set(lane.laneX, bobY, critterBaseZ);
+        lane.critter.rotation.x = 0;
+        if (lane.glow) {
+          lane.glow.position.set(lane.laneX, 0.5, critterBaseZ);
+          (lane.glow.material as THREE.SpriteMaterial).opacity = resolving ? 0.4 : 0.85;
+        }
+        return;
+      }
+
+      // --- Player lane: a solo shootout of the earned shots, one at a time ---
+      const shots = Math.max(0, shooter?.shots ?? 0);
+      const goals = shooter?.goals ?? 0;
+      const noKick = shots <= 0;
+      let kickPulse = 0;
+      let celebrate = 0;
+
+      if (resolving && !noKick) {
+        const t = sinceMs - VOLLEY_LEAD_IN_MS;
+        const k = Math.max(0, Math.min(shots - 1, Math.floor(t / SOLO_BEAT_MS)));
+        const localMs = t - k * SOLO_BEAT_MS;
+        const isLast = k >= shots - 1;
+        const scored = k < goals;
+        const placeX = this.shotPlacements[k] ?? 0;
+        const p = easeOut(clamp01(localMs / FLIGHT_MS));
+        const settleQ = clamp01((localMs - FLIGHT_MS) / SETTLE_MS);
+        const rerack = easeOut(clamp01((localMs - FLIGHT_MS) / (SOLO_BEAT_MS - FLIGHT_MS)));
+
+        if (t < 0) {
+          lane.ball.position.set(lane.laneX, lane.radius, REST_Z);
+        } else if (scored) {
           if (settleQ <= 0) {
             // Flight into the back of the net.
-            lane.ball.position.x = THREE.MathUtils.lerp(lane.laneX, lane.targetX, p);
+            lane.ball.position.x = THREE.MathUtils.lerp(lane.laneX, placeX, p);
             lane.ball.position.z = THREE.MathUtils.lerp(REST_Z, GOAL_Z - 0.55, p);
             lane.ball.position.y = THREE.MathUtils.lerp(lane.radius, 1.45, Math.sin(p * Math.PI * 0.5));
-          } else {
+          } else if (isLast) {
             // Drop down the net and bounce to rest on the goal floor.
-            const drop = easeOut(settleQ);
             lane.ball.position.set(
-              lane.targetX,
-              THREE.MathUtils.lerp(1.45, lane.radius, drop) + Math.sin(settleQ * Math.PI) * 0.16,
+              placeX,
+              THREE.MathUtils.lerp(1.45, lane.radius, easeOut(settleQ)) + Math.sin(settleQ * Math.PI) * 0.16,
               GOAL_Z - 0.55,
+            );
+          } else {
+            // Re-rack: glide the ball back to the spot for the next shot.
+            lane.ball.position.set(
+              THREE.MathUtils.lerp(placeX, lane.laneX, rerack),
+              THREE.MathUtils.lerp(1.45, lane.radius, rerack),
+              THREE.MathUtils.lerp(GOAL_Z - 0.55, REST_Z, rerack),
             );
           }
         } else if (p < 0.5) {
           // First half: in to the keeper.
           const a = p / 0.5;
-          lane.ball.position.x = THREE.MathUtils.lerp(lane.laneX, lane.targetX * 0.5, a);
+          lane.ball.position.x = THREE.MathUtils.lerp(lane.laneX, placeX * 0.5, a);
           lane.ball.position.z = THREE.MathUtils.lerp(REST_Z, KEEPER_Z, a);
           lane.ball.position.y = THREE.MathUtils.lerp(lane.radius, 1.0, Math.sin(a * Math.PI * 0.5));
         } else if (settleQ <= 0) {
           // Second half: deflected back out toward the camera, so a block is unmistakable.
           const b = (p - 0.5) / 0.5;
-          lane.ball.position.x = THREE.MathUtils.lerp(lane.targetX * 0.5, lane.targetX * 1.4, b);
+          lane.ball.position.x = THREE.MathUtils.lerp(placeX * 0.5, placeX * 1.4, b);
           lane.ball.position.z = THREE.MathUtils.lerp(KEEPER_Z, -1.4, b);
           lane.ball.position.y = 1.0 * (1 - b) + 0.32 + Math.sin(b * Math.PI) * 0.85;
-        } else {
+        } else if (isLast) {
           // The parried ball rolls forward to a stop on the turf.
+          lane.ball.position.set(placeX * 1.4, lane.radius, THREE.MathUtils.lerp(-1.4, -0.9, easeOut(settleQ)));
+        } else {
+          // Re-rack the parried ball back to the spot.
           lane.ball.position.set(
-            lane.targetX * 1.4,
+            THREE.MathUtils.lerp(placeX * 1.4, lane.laneX, rerack),
             lane.radius,
-            THREE.MathUtils.lerp(-1.4, -0.9, easeOut(settleQ)),
+            THREE.MathUtils.lerp(-1.4, REST_Z, rerack),
           );
         }
-        // Spin hard through the flight, then damp to a standstill as it settles.
-        lane.ball.rotation.x -= 0.34 * (1 - settleQ);
 
-        // The actively-flying shot drives the keeper: dive away on a goal, meet the ball on a save.
-        if (p > 0.04 && p < 1) {
-          const dir = lane.targetX >= 0 ? 1 : -1;
-          keeperTargetX = scored ? -dir * Math.min(2.2, Math.abs(lane.targetX) + 0.7) : lane.targetX;
+        if (t >= 0) lane.ball.rotation.x -= 0.34 * (1 - Math.min(1, settleQ));
+
+        // The active shot drives the keeper: dive away on a goal, meet the ball on a save.
+        if (t >= 0 && p > 0.04 && p < 1) {
+          const dir = placeX >= 0 ? 1 : -1;
+          keeperTargetX = scored ? -dir * Math.min(2.2, Math.abs(placeX) + 0.7) : placeX;
           keeperHop = Math.sin(p * Math.PI) * (scored ? 0.35 : 0.5);
           keeperLean = (keeperTargetX < 0 ? 1 : -1) * 0.45 * Math.sin(p * Math.PI);
         }
 
-        // Fire the result effect once, the instant the shot reaches the line.
-        if (p >= 0.85 && !this.resolved.has(lane.id)) {
-          this.resolved.add(lane.id);
-          const flashX = scored ? lane.targetX : lane.targetX * 0.5;
+        // Fire each shot's result effect once, the instant it reaches the line.
+        const key = `you-${k}`;
+        if (t >= 0 && p >= 0.85 && !this.resolved.has(key)) {
+          this.resolved.add(key);
+          const flashX = scored ? placeX : placeX * 0.5;
           this.shotFlash.position.set(flashX, 1.3, GOAL_Z + 0.3);
           (this.shotFlash.material as THREE.SpriteMaterial).color.set(scored ? 0x2fd07a : 0xff5247);
           this.flashStrength = 1;
           if (scored) {
-            this.tmp.set(lane.targetX, 1.45, GOAL_Z - 0.55);
-            this.particles.burst(this.tmp, lane.isYou ? 28 : 16, GOAL_COLORS, 1);
+            this.tmp.set(placeX, 1.45, GOAL_Z - 0.55);
+            this.particles.burst(this.tmp, 30, GOAL_COLORS, 1);
+            this.netRipple = 1; // bulge + light the netting
+            rig.punch(1); // push the camera in on your goal
           } else {
-            this.tmp.set(lane.targetX * 0.5, 1.1, KEEPER_Z);
+            this.tmp.set(placeX * 0.5, 1.1, KEEPER_Z);
             this.particles.burst(this.tmp, 12, SAVE_COLORS, 0.5);
             this.keeperPulseAt = elapsedSec; // keeper "grab" pop
           }
         }
+
+        kickPulse = t >= 0 ? Math.sin(clamp01(localMs / FLIGHT_MS) * Math.PI) : 0;
+        celebrate = scored && settleQ > 0 ? Math.abs(Math.sin(elapsedSec * 10)) * 0.16 : 0;
       } else if (resolving && noKick) {
         lane.ball.position.set(lane.laneX, lane.radius, REST_Z);
       } else {
@@ -233,18 +299,10 @@ export class Arena {
         const homeY = lane.radius + Math.sin(elapsedSec * 2 + lane.laneX) * 0.015;
         this.tmp.set(lane.laneX, homeY, REST_Z);
         lane.ball.position.lerp(this.tmp, homeK);
-        lane.ball.rotation.y += lane.isYou ? 0.01 : 0.006;
+        lane.ball.rotation.y += 0.01;
         lane.ball.rotation.x += 0.002;
       }
 
-      // Critter idle bob + a kick lunge that pulses over its shot's flight.
-      const critterBaseZ = REST_Z + 0.62;
-      const bobY = Math.sin(elapsedSec * 2 + lane.laneX) * 0.02;
-      const kickPulse = resolving && !noKick && sinceMs >= shotAtMs
-        ? Math.sin(clamp01((sinceMs - shotAtMs) / FLIGHT_MS) * Math.PI)
-        : 0;
-      // Scored shooters celebrate with a bouncy hop once their goal lands.
-      const celebrate = scored && settleQ > 0 ? Math.abs(Math.sin(elapsedSec * 10)) * 0.16 : 0;
       lane.critter.position.set(lane.laneX, bobY + kickPulse * 0.22 + celebrate, critterBaseZ - kickPulse * 0.25);
       lane.critter.rotation.x = -kickPulse * 0.4;
 
@@ -267,6 +325,14 @@ export class Arena {
       this.flashStrength = Math.max(0, this.flashStrength - dt * 2.4);
       (this.shotFlash.material as THREE.SpriteMaterial).opacity = this.flashStrength * 0.95;
       this.shotFlash.scale.setScalar(2.4 + (1 - this.flashStrength) * 2.2);
+    }
+
+    // Net ripple: bulge the back panel and brighten the strands, then ease back to rest.
+    if (this.backNet && this.netMat) {
+      if (this.netRipple > 0) this.netRipple = Math.max(0, this.netRipple - dt * 2.2);
+      const wobble = Math.sin(this.netRipple * Math.PI) * (0.18 + Math.sin(elapsedSec * 30) * 0.05);
+      this.backNet.position.z = this.netBaseZ - wobble;
+      this.netMat.opacity = this.netBaseOpacity + this.netRipple * 0.5;
     }
 
     this.particles.update(dt);
@@ -292,6 +358,9 @@ export class Arena {
     this.keeperPulseAt = -10;
     this.flashStrength = 0;
     (this.shotFlash.material as THREE.SpriteMaterial).opacity = 0;
+    this.netRipple = 0;
+    if (this.backNet) this.backNet.position.z = this.netBaseZ;
+    if (this.netMat) this.netMat.opacity = this.netBaseOpacity;
   }
 
   dispose() {

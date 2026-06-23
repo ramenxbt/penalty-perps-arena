@@ -8,8 +8,8 @@
 import { RULES } from "../game/engine";
 
 // Same mapping the hook uses for powerRatio, so ticks line up with the fill.
-const POWER_MIN = -0.05;
-const POWER_MAX = 0.1;
+const POWER_MIN = -20;
+const POWER_MAX = 55;
 const toPct = (pnl: number) => ((pnl - POWER_MIN) / (POWER_MAX - POWER_MIN)) * 100;
 
 // Threshold markers at each positive shot tier (1, 2, 3 shots).

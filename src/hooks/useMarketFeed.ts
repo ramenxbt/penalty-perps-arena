@@ -1,11 +1,21 @@
 /**
- * Live market feed for the paper chart. Prefers the rapid Hyperliquid mid-price stream
- * (builds ~1s candles from sub-second mids) and degrades gracefully to the bounded
- * simulator if the stream is unavailable so the arena is never empty or frozen.
+ * Live-tethered arena feed for the paper chart.
+ *
+ * The raw live chart (Hyperliquid mid price) barely moves inside a ~12s trade window, so
+ * timing a close has nothing to grab. Instead of plotting raw ticks, we run a lively
+ * "arena" random walk that is loosely tethered to the real market price: it stays
+ * recognizably the real asset over time, but always has enough movement that a trade
+ * window is meaningful. This mirrors Roach Racing Club's "real chart, amplified effect"
+ * idea, pushed one step further to guarantee action every round. The live stream feeds the
+ * tether anchor and the live/simulated status; it never plots directly.
+ *
+ * Connected mode note: the server (Codex) must generate this same arena series and settle
+ * on it, not on raw Pyth, or a connected result will not match what the player saw. See
+ * BACKEND_HANDOFF.md.
  */
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { createInitialMarket, nextPrice } from "../game/engine";
+import { ARENA_TICK_MS, createArenaSeed, nextArenaPrice } from "../game/engine";
 import { MarketPoint } from "../game/types";
 import { MarketAsset } from "../game/markets";
 import { fetchLatestPrice, streamPrice } from "../lib/hyperliquid";
@@ -13,9 +23,7 @@ import { fetchLatestPrice, streamPrice } from "../lib/hyperliquid";
 export type FeedStatus = "connecting" | "live" | "simulated";
 
 const MAX_POINTS = 96;
-const MIN_APPEND_MS = 1000; // one chart candle per second.
-const CONNECT_TIMEOUT_MS = 4500; // fall back to sim if no live tick by then.
-const SIM_INTERVAL_MS = 700;
+const CONNECT_TIMEOUT_MS = 4500; // mark simulated if no live tick by then (arena keeps ticking).
 
 export type MarketFeed = {
   asset: MarketAsset;
@@ -26,111 +34,79 @@ export type MarketFeed = {
 };
 
 export function useMarketFeed(asset: MarketAsset): MarketFeed {
-  const [market, setMarket] = useState<MarketPoint[]>(() => createInitialMarket(asset.seedPrice, asset.volatility));
+  const [market, setMarket] = useState<MarketPoint[]>(() => createArenaSeed(asset.seedPrice));
   const [latestPrice, setLatestPrice] = useState(asset.seedPrice);
   const [status, setStatus] = useState<FeedStatus>("connecting");
 
-  const lastAppendRef = useRef(0);
-  const simTimerRef = useRef<number | null>(null);
+  const liveAnchorRef = useRef(asset.seedPrice); // latest real market price (the tether)
+  const arenaRef = useRef(asset.seedPrice); // latest arena price (what we plot and trade)
   const gotLiveRef = useRef(false);
-  const simActiveRef = useRef(false);
-  const lastLiveTickTimeRef = useRef(0);
 
   useEffect(() => {
     let cancelled = false;
     const latestAbort = new AbortController();
     gotLiveRef.current = false;
-    simActiveRef.current = false;
-    lastLiveTickTimeRef.current = 0;
-    lastAppendRef.current = 0;
+    liveAnchorRef.current = asset.seedPrice;
+    arenaRef.current = asset.seedPrice;
     setStatus("connecting");
     setLatestPrice(asset.seedPrice);
-    setMarket(createInitialMarket(asset.seedPrice, asset.volatility));
+    setMarket(createArenaSeed(asset.seedPrice));
 
-    const appendPoint = (value: number, time: number) => {
-      const now = Date.now();
-      if (now - lastAppendRef.current < MIN_APPEND_MS) return;
-      lastAppendRef.current = now;
-      setMarket((current) => {
-        const latest = current[current.length - 1];
-        if (latest && time <= latest.time) return current;
-        return [...current.slice(-(MAX_POINTS - 1)), { value, time }];
-      });
-    };
-
-    const stopSim = () => {
-      if (simTimerRef.current !== null) {
-        window.clearInterval(simTimerRef.current);
-        simTimerRef.current = null;
-      }
-      simActiveRef.current = false;
-    };
-
-    const startSim = () => {
-      if (simTimerRef.current !== null) return;
-      simActiveRef.current = true;
-      setStatus("simulated");
-      simTimerRef.current = window.setInterval(() => {
-        if (cancelled) return;
-        setMarket((current) => nextPrice(current, asset.volatility));
-      }, SIM_INTERVAL_MS);
-    };
-
-    // Seed the chart around the real current price so it doesn't open on a
-    // cliff between the placeholder seed and the live market.
+    // Seed the tether + arena around the real current price so the chart opens near reality.
     fetchLatestPrice(asset.symbol, latestAbort.signal)
       .then((tick) => {
         if (cancelled || !tick || gotLiveRef.current) return;
+        liveAnchorRef.current = tick.price;
+        arenaRef.current = tick.price;
         setLatestPrice(tick.price);
-        setMarket(createInitialMarket(tick.price, asset.volatility, tick.time));
+        setMarket(createArenaSeed(tick.price, tick.time));
       })
       .catch(() => {});
 
+    // The live stream only updates the tether anchor and status; it is never plotted raw.
     const stopStream = streamPrice({
       symbol: asset.symbol,
       onTick: (tick) => {
         if (cancelled) return;
-        const firstLive = !gotLiveRef.current;
-        if (!firstLive && tick.time <= lastLiveTickTimeRef.current) return;
-        lastLiveTickTimeRef.current = Math.max(lastLiveTickTimeRef.current, tick.time);
-        const recoveredFromSim = simActiveRef.current;
-        gotLiveRef.current = true;
-        setLatestPrice(tick.price);
-        stopSim();
-        setStatus("live");
-        if (firstLive || recoveredFromSim) {
-          // Rebuild the series around the real price on first connect or after
-          // a simulator fallback so the chart never blends synthetic and live ticks.
-          lastAppendRef.current = Date.now();
-          setMarket(createInitialMarket(tick.price, asset.volatility, tick.time));
-          return;
+        liveAnchorRef.current = tick.price;
+        if (!gotLiveRef.current) {
+          gotLiveRef.current = true;
+          arenaRef.current = tick.price; // snap the arena onto the first real print
+          setStatus("live");
         }
-        appendPoint(tick.price, tick.time);
       },
       onError: () => {
-        if (cancelled) return;
-        startSim();
+        if (!cancelled && !gotLiveRef.current) setStatus("simulated");
       },
     });
 
-    // Watchdog: if the live stream never delivers, switch to the simulator.
+    // Watchdog: if the live stream never delivers, the arena keeps ticking as "simulated".
     const watchdog = window.setTimeout(() => {
-      if (!cancelled && !gotLiveRef.current) startSim();
+      if (!cancelled && !gotLiveRef.current) setStatus("simulated");
     }, CONNECT_TIMEOUT_MS);
+
+    // Arena heartbeat: the walk that makes the chart lively. Runs regardless of feed state.
+    const ticker = window.setInterval(() => {
+      if (cancelled) return;
+      const next = nextArenaPrice(arenaRef.current, liveAnchorRef.current);
+      arenaRef.current = next;
+      setLatestPrice(next);
+      const time = Date.now();
+      setMarket((current) => {
+        const last = current[current.length - 1];
+        if (last && time <= last.time) return current;
+        return [...current.slice(-(MAX_POINTS - 1)), { value: next, time }];
+      });
+    }, ARENA_TICK_MS);
 
     return () => {
       cancelled = true;
       latestAbort.abort();
       window.clearTimeout(watchdog);
       stopStream();
-      stopSim();
+      window.clearInterval(ticker);
     };
   }, [asset]);
-
-  useEffect(() => {
-    if (status === "live") return;
-    setLatestPrice(market[market.length - 1]?.value ?? asset.seedPrice);
-  }, [asset.seedPrice, market, status]);
 
   const price = latestPrice;
   const priceDelta = useMemo(() => {

@@ -21,6 +21,7 @@ export class CameraRig {
   private desiredTarget = new THREE.Vector3();
   private currentTarget = new THREE.Vector3();
   private desiredFov: number;
+  private punchAmount = 0; // decaying impulse that pushes the camera in on a goal
 
   constructor(aspect: number) {
     const base = FRAMINGS.wide;
@@ -44,24 +45,33 @@ export class CameraRig {
     this.desiredFov = next.fov;
   }
 
+  /** Kick the camera in toward the net for a beat. Fired when a goal lands. */
+  punch(strength = 1) {
+    this.punchAmount = Math.min(1.2, this.punchAmount + strength);
+  }
+
   update(dt: number, elapsed: number) {
     // Frame-rate independent damping.
     const k = 1 - Math.pow(0.0015, dt);
-    // Subtle idle sway so a still scene never feels frozen.
-    const swayX = Math.sin(elapsed * 0.25) * 0.25;
-    const swayY = Math.cos(elapsed * 0.2) * 0.12;
+    // Goal punch: a short-lived push-in + slight zoom + handheld shake that decays out.
+    this.punchAmount = Math.max(0, this.punchAmount - dt * 2.6);
+    const punch = this.punchAmount;
+    // Subtle idle sway so a still scene never feels frozen; the shake rides on top of it.
+    const swayX = Math.sin(elapsed * 0.25) * 0.25 + Math.sin(elapsed * 26) * 0.05 * punch;
+    const swayY = Math.cos(elapsed * 0.2) * 0.12 + punch * 0.16;
 
     this.camera.position.x += (this.desiredPos.x + swayX - this.camera.position.x) * k;
     this.camera.position.y += (this.desiredPos.y + swayY - this.camera.position.y) * k;
-    this.camera.position.z += (this.desiredPos.z - this.camera.position.z) * k;
+    this.camera.position.z += (this.desiredPos.z - punch * 1.7 - this.camera.position.z) * k;
 
     this.currentTarget.x += (this.desiredTarget.x - this.currentTarget.x) * k;
     this.currentTarget.y += (this.desiredTarget.y - this.currentTarget.y) * k;
     this.currentTarget.z += (this.desiredTarget.z - this.currentTarget.z) * k;
     this.camera.lookAt(this.currentTarget);
 
-    if (Math.abs(this.camera.fov - this.desiredFov) > 0.01) {
-      this.camera.fov += (this.desiredFov - this.camera.fov) * k;
+    const targetFov = this.desiredFov - punch * 5;
+    if (Math.abs(this.camera.fov - targetFov) > 0.01) {
+      this.camera.fov += (targetFov - this.camera.fov) * k;
       this.camera.updateProjectionMatrix();
     }
   }

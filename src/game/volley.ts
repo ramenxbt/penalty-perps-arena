@@ -5,6 +5,9 @@ import { Shooter } from "./types";
 export const VOLLEY_LEAD_IN_MS = 520;
 export const SHOT_BEAT_MS = 1050;
 export const FLIGHT_MS = 820;
+// Solo shootout: only the player kicks, taking their earned shots one at a time. A wider
+// beat leaves room for the ball to land, settle, and re-rack between shots.
+export const SOLO_BEAT_MS = 1500;
 
 export type VisibleVolleyAttempt = {
   shooter: Shooter | undefined;
@@ -35,7 +38,24 @@ export function visibleVolleyAttempts(shooters: Shooter[]): VisibleVolleyAttempt
   });
 }
 
+/**
+ * The player's own shots, in order. Only the player kicks in the solo shootout; AI rivals are
+ * spectators whose results live on the scoreboard. A liquidated player (no shots) still gets a
+ * single no-kick beat so the round reads.
+ */
+export function playerVolleyAttempts(shooters: Shooter[]): VisibleVolleyAttempt[] {
+  const you = shooters.find((shooter) => shooter.isYou);
+  if (!you) return [];
+  if (you.shots <= 0) return [{ shooter: you, attemptIndex: 0, scored: false, noKick: true }];
+  return Array.from({ length: you.shots }, (_, attemptIndex) => ({
+    shooter: you,
+    attemptIndex,
+    scored: attemptIndex < you.goals,
+    noKick: false,
+  }));
+}
+
 export function volleyDuration(shooters: Shooter[]): number {
-  const attempts = visibleVolleyAttempts(arrangeShooters(shooters));
-  return 900 + Math.max(1, attempts.length) * SHOT_BEAT_MS;
+  const attempts = playerVolleyAttempts(shooters);
+  return 900 + Math.max(1, attempts.length) * SOLO_BEAT_MS;
 }

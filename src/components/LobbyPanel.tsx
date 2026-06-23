@@ -12,6 +12,7 @@ type LobbyField = {
   isYou: boolean;
   isAi: boolean;
   isHolder: boolean;
+  tendency?: string;
 };
 
 export function LobbyPanel(props: {
@@ -36,7 +37,7 @@ export function LobbyPanel(props: {
   } = props;
 
   const roundsLabel =
-    roundsLeft === 1 ? "Last round today" : `${roundsLeft} of ${roundsMax} rounds left`;
+    roundsLeft === 1 ? "Last round today" : `${roundsLeft} rounds left today`;
 
   const ctaLabel = outOfRounds
     ? "Out of rounds today"
@@ -80,7 +81,7 @@ export function LobbyPanel(props: {
                     "you"
                   ) : entry.isAi ? (
                     <>
-                      <Bot size={13} /> AI squad
+                      <Bot size={13} /> {entry.tendency ?? "AI rival"}
                     </>
                   ) : entry.isHolder ? (
                     <>

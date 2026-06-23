@@ -1517,6 +1517,7 @@ h2 {
 .result-cta {
   display: flex;
   align-items: center;
+  flex-wrap: wrap;
   gap: 14px;
 }
 
@@ -1529,6 +1530,67 @@ h2 {
   font-family: "IBM Plex Mono", monospace;
   font-size: 0.78rem;
   color: var(--text-soft);
+}
+
+/* Secondary "ghost" button (share result card). */
+.ghost-action {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 11px 16px;
+  border-radius: var(--radius);
+  border: 1px solid rgba(244, 244, 245, 0.16);
+  background: rgba(255, 255, 255, 0.03);
+  color: var(--text);
+  font: inherit;
+  font-weight: 600;
+  font-size: 0.92rem;
+  cursor: pointer;
+  transition: border-color 140ms ease, background 140ms ease, color 140ms ease;
+}
+
+.ghost-action:hover {
+  border-color: rgba(255, 197, 61, 0.5);
+  background: rgba(255, 197, 61, 0.06);
+  color: #ffc53d;
+}
+
+.ghost-action.full {
+  width: 100%;
+  flex-basis: 100%;
+}
+
+.ghost-action svg {
+  color: #ffc53d;
+}
+
+/* Streak HUD pill: ignites as the streak climbs (static glow, no pulse). */
+.streak-pill strong {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.streak-pill.on-fire {
+  border-color: rgba(255, 160, 60, 0.5);
+  background: rgba(255, 120, 40, 0.12);
+}
+
+.streak-pill.on-fire strong,
+.streak-pill.on-fire svg {
+  color: #ffb454;
+}
+
+.streak-pill.blaze {
+  border-color: rgba(255, 95, 40, 0.7);
+  background: rgba(255, 95, 30, 0.16);
+  box-shadow: 0 0 22px rgba(255, 100, 35, 0.45);
+}
+
+.streak-pill.blaze strong,
+.streak-pill.blaze svg {
+  color: #ff6a2c;
 }
 
 /* --- round break overlay (over the arena) ----------------------------- */

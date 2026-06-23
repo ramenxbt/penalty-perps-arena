@@ -24,6 +24,8 @@ export type MatchParticipant = {
   isYou: boolean;
   isAi: boolean;
   isHolder: boolean;
+  /** For AI rivals: their trading-personality tag (shown in the lobby). */
+  tendency?: string;
   /** Points accrued THIS match only. */
   matchPoints: number;
   matchGoals: number;
@@ -73,6 +75,7 @@ export function buildField(
       isYou: false,
       isAi: true,
       isHolder: false,
+      tendency: row.tendency,
       matchPoints: 0,
       matchGoals: 0,
       standing: 0,
