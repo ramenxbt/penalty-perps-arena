@@ -382,6 +382,7 @@ export function App() {
             points={game.market}
             entryPrice={game.entryPrice}
             asset={game.marketAsset}
+            pnlPct={pnlActive ? game.pnlPct : null}
           />
 
           <div className="market-meta">
