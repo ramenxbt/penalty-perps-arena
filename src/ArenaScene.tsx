@@ -24,15 +24,17 @@ type ArenaSceneProps = {
   phase: RoundPhase;
   shooters: Shooter[];
   hud: ScoreboardData;
+  /** Live trade mood, -1 (losing hard) .. 0 (flat) .. 1 (winning hard). */
+  mood: number;
 };
 
 const SHOW_STATS = typeof window !== "undefined" && window.location.search.includes("stats");
 
-export function ArenaScene({ phase, shooters, hud }: ArenaSceneProps) {
+export function ArenaScene({ phase, shooters, hud, mood }: ArenaSceneProps) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const statsRef = useRef<HTMLDivElement | null>(null);
-  const stateRef = useRef<ArenaState>({ phase, shooters, hud });
-  stateRef.current = { phase, shooters, hud };
+  const stateRef = useRef<ArenaState>({ phase, shooters, hud, mood });
+  stateRef.current = { phase, shooters, hud, mood };
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -69,7 +71,14 @@ export function ArenaScene({ phase, shooters, hud }: ArenaSceneProps) {
       last = now;
       elapsed += dt;
 
+      // Stadium mood: one live-PnL signal drives the crowd energy, light warmth, and lens.
+      const mood = stateRef.current.mood ?? 0;
+      environment.setExcitement(Math.max(0, Math.min(1, 0.2 + mood * 0.8)));
+      lighting.setMood(mood);
+      rig.setMood(mood);
+
       environment.update(dt, elapsed);
+      lighting.update(dt);
       arena.update(dt, elapsed, stateRef.current, rig);
       rig.update(dt, elapsed);
       scene.render(rig.camera);

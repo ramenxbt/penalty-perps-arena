@@ -1051,6 +1051,24 @@ h2 {
   letter-spacing: 0.04em;
 }
 
+/* Stadium mood vignette: a soft gold edge glow when the trade is winning, a red danger
+   edge when it is losing. Driven by inline opacity + boxShadow from live PnL. */
+.mood-vignette {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  border-radius: inherit;
+  opacity: 0;
+  transition: opacity 380ms ease, box-shadow 380ms ease;
+  z-index: 4;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .mood-vignette {
+    transition: none;
+  }
+}
+
 /* --- candlestick chart ------------------------------------------------ */
 .candles {
   width: 100%;

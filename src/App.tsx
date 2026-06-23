@@ -136,6 +136,9 @@ export function App() {
   const shotClockPct = Math.max(3, Math.round(game.tradeProgress * 100));
   const netRead = game.pnlPct >= 0 ? "open" : "covered";
   const pnlActive = trading || closeFailed;
+  // Stadium mood: live PnL mapped to -1..1 (tens of percent fills the bar). Drives the
+  // crowd, lighting, embers, camera (in the 3D scene) and the screen-edge vignette below.
+  const mood = pnlActive ? Math.max(-1, Math.min(1, game.pnlPct / 30)) : 0;
   const priceDeltaPrefix = game.derived.priceDelta >= 0 ? "+" : "-";
   const showOutcome = game.phase === "settled" && Boolean(game.outcome);
 
@@ -335,8 +338,18 @@ export function App() {
                   streak: game.streak,
                   market: game.marketAsset.displayPair,
                 }}
+                mood={mood}
               />
             </Suspense>
+
+            <div
+              className="mood-vignette"
+              aria-hidden="true"
+              style={{
+                opacity: Math.min(0.85, Math.abs(mood)),
+                boxShadow: `inset 0 0 90px 12px ${mood >= 0 ? "rgba(255, 197, 61, 0.5)" : "rgba(255, 82, 71, 0.6)"}`,
+              }}
+            />
 
             <TradeTicker
               price={game.derived.price}

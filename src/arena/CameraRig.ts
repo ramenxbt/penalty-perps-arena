@@ -22,6 +22,8 @@ export class CameraRig {
   private currentTarget = new THREE.Vector3();
   private desiredFov: number;
   private punchAmount = 0; // decaying impulse that pushes the camera in on a goal
+  private mood = 0;
+  private moodTarget = 0;
 
   constructor(aspect: number) {
     const base = FRAMINGS.wide;
@@ -50,12 +52,18 @@ export class CameraRig {
     this.punchAmount = Math.min(1.2, this.punchAmount + strength);
   }
 
+  /** Stadium mood, -1..1. Subtly tightens the lens on a win, widens it on a loss. */
+  setMood(value: number) {
+    this.moodTarget = Math.max(-1, Math.min(1, value));
+  }
+
   update(dt: number, elapsed: number) {
     // Frame-rate independent damping.
     const k = 1 - Math.pow(0.0015, dt);
     // Goal punch: a short-lived push-in + slight zoom + handheld shake that decays out.
     this.punchAmount = Math.max(0, this.punchAmount - dt * 2.6);
     const punch = this.punchAmount;
+    this.mood += (this.moodTarget - this.mood) * (1 - Math.pow(0.05, dt));
     // Subtle idle sway so a still scene never feels frozen; the shake rides on top of it.
     const swayX = Math.sin(elapsed * 0.25) * 0.25 + Math.sin(elapsed * 26) * 0.05 * punch;
     const swayY = Math.cos(elapsed * 0.2) * 0.12 + punch * 0.16;
@@ -69,7 +77,7 @@ export class CameraRig {
     this.currentTarget.z += (this.desiredTarget.z - this.currentTarget.z) * k;
     this.camera.lookAt(this.currentTarget);
 
-    const targetFov = this.desiredFov - punch * 5;
+    const targetFov = this.desiredFov - punch * 5 - this.mood * 1.6;
     if (Math.abs(this.camera.fov - targetFov) > 0.01) {
       this.camera.fov += (targetFov - this.camera.fov) * k;
       this.camera.updateProjectionMatrix();

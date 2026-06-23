@@ -20,7 +20,7 @@ import { GOAL_COLORS, ParticlePool, SAVE_COLORS } from "./ParticlePool";
 import { QualitySettings } from "./quality";
 import { Scoreboard, ScoreboardData } from "./Scoreboard";
 
-export type ArenaState = { phase: RoundPhase; shooters: Shooter[]; hud?: ScoreboardData };
+export type ArenaState = { phase: RoundPhase; shooters: Shooter[]; hud?: ScoreboardData; mood?: number };
 
 type Lane = {
   id: string;
@@ -69,6 +69,7 @@ export class Arena {
   // goal mouth so placement varies shot to shot.
   private goalMouth = 3;
   private shotPlacements: number[] = [];
+  private emberTimer = 0; // paces the winning-mood embers
 
   // Net ripple: a decaying impulse that bulges + lights the netting when a goal lands.
   private backNet: THREE.LineSegments | null = null;
@@ -366,6 +367,20 @@ export class Arena {
       const wobble = Math.sin(this.netRipple * Math.PI) * (0.18 + Math.sin(elapsedSec * 30) * 0.05);
       this.backNet.position.z = this.netBaseZ - wobble;
       this.netMat.opacity = this.netBaseOpacity + this.netRipple * 0.5;
+    }
+
+    // Winning mood: gold embers rise off the pitch, faster the better the trade is doing.
+    const mood = state.mood ?? 0;
+    if (mood > 0.12) {
+      this.emberTimer += dt;
+      const interval = THREE.MathUtils.lerp(0.4, 0.05, Math.min(1, mood));
+      while (this.emberTimer >= interval) {
+        this.emberTimer -= interval;
+        this.tmp.set((Math.random() - 0.5) * 5, 0.15, REST_Z - Math.random() * 8);
+        this.particles.ember(this.tmp, 0xffc53d);
+      }
+    } else {
+      this.emberTimer = 0;
     }
 
     this.particles.update(dt);

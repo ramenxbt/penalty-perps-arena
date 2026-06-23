@@ -15,6 +15,7 @@ type Particle = {
   life: number;
   maxLife: number;
   scale: number;
+  grav: number; // gravity scale: 1 for confetti, near 0 for floaty embers
 };
 
 const GRAVITY = -9.5;
@@ -43,6 +44,7 @@ export class ParticlePool {
       life: 0,
       maxLife: 1,
       scale: 1,
+      grav: 1,
     }));
 
     // Park everything off-screen at zero scale.
@@ -64,6 +66,7 @@ export class ParticlePool {
       if (spawned >= count) break;
       if (particle.active) continue;
       particle.active = true;
+      particle.grav = 1;
       particle.pos.copy(origin);
       particle.vel.set(
         (Math.random() - 0.5) * 4.5 * spread,
@@ -83,6 +86,27 @@ export class ParticlePool {
     if (this.mesh.instanceColor) this.mesh.instanceColor.needsUpdate = true;
   }
 
+  /** Spawn one slow, floaty ember that drifts upward and fades. Used for the winning mood. */
+  ember(origin: THREE.Vector3, hex = 0xffc53d) {
+    for (const particle of this.particles) {
+      if (particle.active) continue;
+      particle.active = true;
+      particle.grav = 0.04; // nearly weightless, keeps drifting up
+      particle.pos.copy(origin);
+      particle.vel.set((Math.random() - 0.5) * 0.5, 0.8 + Math.random() * 0.7, (Math.random() - 0.5) * 0.5);
+      particle.rot = Math.random() * Math.PI;
+      particle.spin = (Math.random() - 0.5) * 3;
+      particle.maxLife = 1.6 + Math.random() * 1.0;
+      particle.life = particle.maxLife;
+      particle.scale = 0.32 + Math.random() * 0.3;
+      const index = this.particles.indexOf(particle);
+      this.color.set(hex);
+      this.mesh.setColorAt(index, this.color);
+      if (this.mesh.instanceColor) this.mesh.instanceColor.needsUpdate = true;
+      return;
+    }
+  }
+
   update(dt: number) {
     let dirty = false;
     this.particles.forEach((particle, index) => {
@@ -97,7 +121,7 @@ export class ParticlePool {
         this.mesh.setMatrixAt(index, this.dummy.matrix);
         return;
       }
-      particle.vel.y += GRAVITY * dt;
+      particle.vel.y += GRAVITY * particle.grav * dt;
       particle.pos.addScaledVector(particle.vel, dt);
       particle.rot += particle.spin * dt;
 
