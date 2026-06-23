@@ -15,7 +15,9 @@
 
 import * as THREE from "three";
 import { QualitySettings } from "./quality";
-import { createPitchMaterial, createSkyMaterial } from "./materials";
+import { createGlowSprite, createPitchMaterial, createSkyMaterial } from "./materials";
+
+const AD_MESSAGES = "PENALTY PERPS    ·    TRADE THE CHART    ·    PROFIT EARNS YOUR SHOTS    ·    PAPER ONLY    ·    $PERP    ·    GLOBAL PENALTY CIRCUIT    ·    ";
 
 // Muted, structured kits. Deliberately darker + less saturated than the focal gold #ffc53d /
 // green #2fd07a so the stands stay background. Home = blue-steel, away = clay.
@@ -47,12 +49,18 @@ export class Environment {
   private wavePhase = 0;
   private excitement = 0;
   private excitementTarget = 0;
+  private adTexture: THREE.CanvasTexture | null = null;
+  private flashes: { sprite: THREE.Sprite; life: number }[] = [];
+  private flashTimer = 0;
 
   constructor(scene: THREE.Scene, quality: QualitySettings) {
     this.addSky(scene);
     this.addPitch(scene);
     this.addFieldLines(scene);
+    this.addFloodlights(scene);
+    this.addAdBoards(scene);
     this.addCrowd(scene, quality);
+    this.addCameraFlashes(scene, quality);
   }
 
   private track<T extends { dispose: () => void }>(item: T): T {
@@ -189,6 +197,100 @@ export class Environment {
     this.heads = this.track(heads);
   }
 
+  /** Four corner floodlight pylons: a dark mast, a bright lamp bank, and an additive bloom. */
+  private addFloodlights(scene: THREE.Scene) {
+    const poleGeo = this.track(new THREE.CylinderGeometry(0.22, 0.34, 16, 8));
+    const poleMat = this.track(new THREE.MeshStandardMaterial({ color: 0x20262b, roughness: 0.6, metalness: 0.7 }));
+    const bankGeo = this.track(new THREE.BoxGeometry(2.6, 1.3, 0.3));
+    const bankMat = this.track(new THREE.MeshBasicMaterial({ color: 0xfdf6e3, toneMapped: false }));
+    const corners: [number, number][] = [
+      [-17, -16],
+      [17, -16],
+      [-19, 5],
+      [19, 5],
+    ];
+    for (const [x, z] of corners) {
+      const pole = new THREE.Mesh(poleGeo, poleMat);
+      pole.position.set(x, 8, z);
+      scene.add(pole);
+
+      const bank = new THREE.Mesh(bankGeo, bankMat);
+      bank.position.set(x, 16, z);
+      bank.lookAt(0, 4, -4); // aim the lamp bank at the pitch
+      scene.add(bank);
+
+      const glow = createGlowSprite(0xfff4d6, 5.2);
+      glow.position.set(x, 16, z);
+      (glow.material as THREE.SpriteMaterial).opacity = 0.85;
+      scene.add(glow);
+    }
+  }
+
+  /** Pitch-side LED advertising boards with scrolling crypto/game flavor (one shared texture). */
+  private addAdBoards(scene: THREE.Scene) {
+    const canvas = document.createElement("canvas");
+    canvas.width = 2048;
+    canvas.height = 128;
+    const ctx = canvas.getContext("2d");
+    if (ctx) {
+      ctx.fillStyle = "#0a0f12";
+      ctx.fillRect(0, 0, 2048, 128);
+      ctx.font = "700 64px IBM Plex Mono, ui-monospace, monospace";
+      ctx.textBaseline = "middle";
+      ctx.textAlign = "left";
+      // Tile the message across the strip; alternate gold/cyan words for an LED feel.
+      const words = AD_MESSAGES.split("·");
+      let x = 0;
+      let pass = 0;
+      while (x < 2048) {
+        for (const word of words) {
+          ctx.fillStyle = pass % 2 === 0 ? "#ffc53d" : "#65d8ff";
+          ctx.fillText(word.trim(), x, 70);
+          x += ctx.measureText(word.trim()).width + 60;
+          pass += 1;
+        }
+      }
+    }
+    const texture = this.track(new THREE.CanvasTexture(canvas));
+    texture.colorSpace = THREE.SRGBColorSpace;
+    texture.wrapS = THREE.RepeatWrapping;
+    texture.wrapT = THREE.ClampToEdgeWrapping;
+    texture.repeat.set(3, 1);
+    this.adTexture = texture;
+    const mat = this.track(new THREE.MeshBasicMaterial({ map: texture, toneMapped: false, transparent: true }));
+    const geo = this.track(new THREE.PlaneGeometry(12, 0.7));
+
+    const left = new THREE.Mesh(geo, mat);
+    left.position.set(-8, 0.45, -3);
+    left.rotation.y = Math.PI / 2; // face inward (+X)
+    scene.add(left);
+
+    const right = new THREE.Mesh(geo, mat);
+    right.position.set(8, 0.45, -3);
+    right.rotation.y = -Math.PI / 2; // face inward (-X)
+    scene.add(right);
+
+    const backGeo = this.track(new THREE.PlaneGeometry(11, 0.8));
+    const back = new THREE.Mesh(backGeo, mat);
+    back.position.set(0, 1.0, -11.4); // behind the goal, visible above the net
+    scene.add(back);
+  }
+
+  /** A pool of additive sparkles in the stands that randomly pop, like crowd camera flashes. */
+  private addCameraFlashes(scene: THREE.Scene, quality: QualitySettings) {
+    const count = quality.tier === "high" ? 26 : quality.tier === "medium" ? 16 : 0;
+    for (let i = 0; i < count; i += 1) {
+      const angle = Math.PI * (0.6 + Math.random() * 0.8);
+      const radius = 18 + Math.random() * 6;
+      const y = 1.6 + Math.random() * 5;
+      const sprite = createGlowSprite(0xffffff, 0.6 + Math.random() * 0.4);
+      sprite.position.set(Math.cos(angle) * radius, y, -6 + Math.sin(angle) * radius);
+      (sprite.material as THREE.SpriteMaterial).opacity = 0;
+      scene.add(sprite);
+      this.flashes.push({ sprite, life: 0 });
+    }
+  }
+
   /** Live trade energy, 0..1. Lifts crowd bob, wave speed, and reach. Smoothed in update. */
   setExcitement(value: number) {
     this.excitementTarget = Math.max(0, Math.min(1, value));
@@ -202,6 +304,26 @@ export class Environment {
 
     this.excitement += (this.excitementTarget - this.excitement) * Math.min(1, dt * 3);
     const ex = this.excitement;
+
+    // Scrolling LED ad boards.
+    if (this.adTexture) this.adTexture.offset.x = (this.adTexture.offset.x + dt * 0.05) % 1;
+
+    // Crowd camera flashes: pop a random sparkle on a cadence that quickens when excited.
+    if (this.flashes.length > 0) {
+      this.flashTimer -= dt;
+      if (this.flashTimer <= 0) {
+        const f = this.flashes[(Math.random() * this.flashes.length) | 0];
+        f.life = 0.16;
+        this.flashTimer = 0.32 - ex * 0.22 + Math.random() * 0.15;
+      }
+      for (const f of this.flashes) {
+        if (f.life > 0) {
+          f.life = Math.max(0, f.life - dt);
+          (f.sprite.material as THREE.SpriteMaterial).opacity = (f.life / 0.16) * 0.9;
+        }
+      }
+    }
+
     const bobAmp = 0.045 * (1 + 0.9 * ex);
     const waveSpeed = 1.3 + ex * 1.7;
     const waveLift = 0.18 + ex * 0.4;
@@ -232,5 +354,7 @@ export class Environment {
     this.torsos = null;
     this.heads = null;
     this.fans = [];
+    this.flashes = [];
+    this.adTexture = null;
   }
 }

@@ -71,6 +71,14 @@ export class Arena {
   private shotPlacements: number[] = [];
   private emberTimer = 0; // paces the winning-mood embers
 
+  // Comet trail behind the player's shot, and an expanding shockwave ring on a goal.
+  private trail: THREE.Sprite[] = [];
+  private trailHistory: THREE.Vector3[] = [];
+  private trailActive = false;
+  private shockwave: THREE.Mesh | null = null;
+  private shockwaveStrength = 0;
+  private youLane: Lane | null = null;
+
   // Net ripple: a decaying impulse that bulges + lights the netting when a goal lands.
   private backNet: THREE.LineSegments | null = null;
   private netMat: THREE.LineBasicMaterial | null = null;
@@ -146,11 +154,39 @@ export class Arena {
 
     this.particles = new ParticlePool(scene, quality.particleCount);
     this.scoreboard = new Scoreboard(scene);
+    this.youLane = this.lanes.find((lane) => lane.isYou) ?? null;
+
+    // Comet trail (a short string of fading additive sprites). Gated to the glow tier.
+    if (quality.glow) {
+      for (let i = 0; i < 9; i += 1) {
+        const s = createGlowSprite(0xffe39a, 0.5 - i * 0.03);
+        (s.material as THREE.SpriteMaterial).opacity = 0;
+        scene.add(s);
+        this.trail.push(s);
+        this.trailHistory.push(new THREE.Vector3(0, -10, 0));
+      }
+    }
+
+    // Goal shockwave: a flat additive ring at the net that expands and fades on a goal.
+    this.shockwave = new THREE.Mesh(
+      new THREE.RingGeometry(0.2, 0.42, 36),
+      new THREE.MeshBasicMaterial({
+        color: 0x2fd07a,
+        transparent: true,
+        opacity: 0,
+        blending: THREE.AdditiveBlending,
+        depthWrite: false,
+        toneMapped: false,
+        side: THREE.DoubleSide,
+      }),
+    );
+    scene.add(this.shockwave);
   }
 
   update(dt: number, elapsedSec: number, state: ArenaState, rig: CameraRig) {
     const { phase, shooters } = state;
     if (state.hud) this.scoreboard.update(state.hud);
+    this.trailActive = false;
 
     if (phase !== this.previousPhase) {
       if (phase === "resolving") {
@@ -266,6 +302,9 @@ export class Arena {
 
         if (t >= 0) lane.ball.rotation.x -= 0.34 * (1 - Math.min(1, settleQ));
 
+        // The ball streaks a comet trail while it is in the air.
+        if (t >= 0 && p > 0.02 && p < 0.98 && settleQ <= 0) this.trailActive = true;
+
         // The active shot drives the keeper: dive away on a goal, meet the ball on a save.
         if (t >= 0 && p > 0.04 && p < 1) {
           const dir = placeX >= 0 ? 1 : -1;
@@ -287,6 +326,8 @@ export class Arena {
             this.particles.burst(this.tmp, 30, GOAL_COLORS, 1);
             this.netRipple = 1; // bulge + light the netting
             rig.punch(1); // push the camera in on your goal
+            this.shockwaveStrength = 1; // expanding ring at the net
+            this.shockwave?.position.set(placeX, 1.45, GOAL_Z - 0.4);
           } else {
             this.tmp.set(placeX * 0.5, 1.1, KEEPER_Z);
             this.particles.burst(this.tmp, 12, SAVE_COLORS, 0.5);
@@ -383,6 +424,39 @@ export class Arena {
       this.emberTimer = 0;
     }
 
+    // Comet trail: ride the live shot, otherwise fade out. Ring buffer reuses its vectors.
+    if (this.trail.length) {
+      const youBall = this.youLane?.ball;
+      if (this.trailActive && youBall) {
+        const head = this.trailHistory.pop();
+        if (head) {
+          head.copy(youBall.position);
+          this.trailHistory.unshift(head);
+        }
+        for (let i = 0; i < this.trail.length; i += 1) {
+          this.trail[i].position.copy(this.trailHistory[i]);
+          (this.trail[i].material as THREE.SpriteMaterial).opacity = (1 - i / this.trail.length) * 0.5;
+        }
+      } else {
+        for (const s of this.trail) {
+          const m = s.material as THREE.SpriteMaterial;
+          if (m.opacity > 0.001) m.opacity = Math.max(0, m.opacity - dt * 4);
+        }
+      }
+    }
+
+    // Goal shockwave ring: expand outward and fade.
+    if (this.shockwave) {
+      const mat = this.shockwave.material as THREE.MeshBasicMaterial;
+      if (this.shockwaveStrength > 0) {
+        this.shockwaveStrength = Math.max(0, this.shockwaveStrength - dt * 1.8);
+        this.shockwave.scale.setScalar(1 + (1 - this.shockwaveStrength) * 5);
+        mat.opacity = this.shockwaveStrength * 0.6;
+      } else if (mat.opacity !== 0) {
+        mat.opacity = 0;
+      }
+    }
+
     this.particles.update(dt);
   }
 
@@ -409,6 +483,9 @@ export class Arena {
     this.netRipple = 0;
     if (this.backNet) this.backNet.position.z = this.netBaseZ;
     if (this.netMat) this.netMat.opacity = this.netBaseOpacity;
+    this.shockwaveStrength = 0;
+    if (this.shockwave) (this.shockwave.material as THREE.MeshBasicMaterial).opacity = 0;
+    for (const s of this.trail) (s.material as THREE.SpriteMaterial).opacity = 0;
   }
 
   dispose() {
