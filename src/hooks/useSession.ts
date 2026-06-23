@@ -86,8 +86,9 @@ export function useSession() {
       seasonDelta: { rankDelta: rankBefore - rankAfter, seasonPoints: game.score },
     });
     setParticipants(ranked);
+    game.resetRound(); // clear the settled round so results does not show stale trade state
     setSessionPhase("match_results");
-  }, [participants, game.rows, game.score, you.id, rankBefore, bestRound]);
+  }, [participants, game, you.id, rankBefore, bestRound]);
 
   const advanceRound = useCallback(() => {
     if (roundIndex + 1 >= MATCH_ROUNDS) {

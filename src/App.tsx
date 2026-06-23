@@ -114,7 +114,8 @@ export function App() {
   const closeFailed = game.phase === "closeFailed";
   const resolving = game.phase === "resolving";
   const noRounds = game.roundsLeft <= 0;
-  const canOpen = game.ready && game.marketReady && !noRounds && inMatch;
+  const canOpen =
+    game.ready && game.marketReady && !noRounds && inMatch && !game.requiresAuth && !game.busy;
 
   const standRows = game.participants.map((p) => ({
     id: p.id,
@@ -148,13 +149,13 @@ export function App() {
           ? `Waiting for live ${game.marketAsset.displayPair} before kickoff.`
           : `Syncing ${game.marketAsset.displayPair} before kickoff.`
       : opening
-        ? `VAR is pinning your ${game.marketAsset.displayPair} entry.`
+        ? "Locking in your entry."
         : trading && !game.canCloseNow
-          ? "Waiting for the market feed before closing."
+          ? "Waiting for the live price before you can close."
         : trading
-          ? `Position open. Close while you are up. Auto-closes in ${seconds}s.`
+          ? `Close while you are up. It closes for you in ${seconds}s.`
           : settling
-            ? "VAR is checking the close. Volley starts after settlement."
+            ? "Settling your trade."
           : closeFailed
             ? "Close failed. Keep the round and retry settlement."
             : resolving
@@ -198,10 +199,6 @@ export function App() {
           <a href="#standings" aria-label="Standings">
             <Trophy size={20} />
             <span>Standings</span>
-          </a>
-          <a href="#markets" aria-label="Markets">
-            <Activity size={20} />
-            <span>Markets</span>
           </a>
         </nav>
 
@@ -348,11 +345,13 @@ export function App() {
       </section>
 
       <aside className="right-stack">
+        {showArena && (
+          <>
         <section className="market-slip" id="markets">
           <div className="section-heading">
             <div>
-              <span className="eyebrow">Paper {game.marketAsset.displayPair} · {feedLabel(game.feedStatus)}</span>
-              <h2>Trade dock</h2>
+              <span className="eyebrow">Paper trading</span>
+              <h2>{game.marketAsset.displayPair}</h2>
             </div>
             <span className={game.derived.priceDelta >= 0 ? "price up" : "price down"}>
               {priceDeltaPrefix}
@@ -368,15 +367,15 @@ export function App() {
 
           <div className="market-meta">
             <div>
-              <span>Mark</span>
+              <span>Now</span>
               <strong>${formatMarketPrice(game.derived.price, game.marketAsset)}</strong>
             </div>
             <div>
-              <span>Entry</span>
+              <span>Your price</span>
               <strong>${entryText}</strong>
             </div>
             <div>
-              <span>PnL</span>
+              <span>Profit</span>
               <strong className={pnlActive ? (game.pnlPct >= 0 ? "pnl up" : "pnl down") : ""}>
                 {pnlActive ? `${game.pnlPct >= 0 ? "+" : ""}${game.pnlPct.toFixed(2)}%` : "--"}
               </strong>
@@ -396,22 +395,18 @@ export function App() {
               aria-label={`Shot clock ${seconds} seconds remaining`}
             >
               <div className="pressure-copy">
-                <span>Shot clock</span>
+                <span>Close in</span>
                 <strong>{seconds}s</strong>
               </div>
               <div
                 className="pressure-track"
                 role="progressbar"
-                aria-label="Shot clock elapsed"
+                aria-label="Time left to close"
                 aria-valuemin={0}
                 aria-valuemax={100}
                 aria-valuenow={shotClockPct}
               >
                 <span style={{ width: `${shotClockPct}%` }} />
-              </div>
-              <div className="pressure-copy right">
-                <span>Net read</span>
-                <strong>{netRead}</strong>
               </div>
             </div>
           )}
@@ -423,7 +418,7 @@ export function App() {
             </button>
           ) : opening ? (
             <button className="primary-action full" type="button" disabled aria-busy="true">
-              Pinning {game.marketAsset.symbol} entry
+              Locking in entry
             </button>
           ) : trading ? (
             <button
@@ -438,7 +433,7 @@ export function App() {
             </button>
           ) : settling ? (
             <button className="primary-action full" type="button" disabled aria-busy="true">
-              Checking close
+              Settling trade
             </button>
           ) : closeFailed ? (
             <button className="close-action down" type="button" onClick={closeWithSound}>
@@ -448,7 +443,7 @@ export function App() {
             <button className="primary-action full" type="button" disabled aria-busy="true">
               Shots away
             </button>
-          ) : (
+          ) : inMatch ? (
             <div className="direction-grid" role="group" aria-label="Open a position">
               <button
                 className="long"
@@ -467,6 +462,10 @@ export function App() {
                 Short
               </button>
             </div>
+          ) : (
+            <button className="primary-action full" type="button" disabled>
+              Trading opens at kickoff
+            </button>
           )}
 
           <div className="disclosure-row">
@@ -477,20 +476,20 @@ export function App() {
 
         <section className="result-ticket">
           <div className="ticket-top">
-            <span>Round ticket</span>
+            <span>This round</span>
             <strong>
               {showOutcome && game.outcome
                 ? game.outcome.shots <= 0
-                  ? "NO KICK"
+                  ? "NO SHOT"
                   : game.outcome.goals > 0
                     ? "GOAL"
                     : "BLOCKED"
                 : trading
-                  ? "LIVE"
+                  ? "TRADING"
                   : settling
-                    ? "VAR"
+                    ? "SETTLING"
                     : resolving
-                    ? "SHOTS"
+                    ? "SHOOTING"
                   : "OPEN"}
             </strong>
           </div>
@@ -544,10 +543,13 @@ export function App() {
           )}
         </section>
 
+          </>
+        )}
+
         <section className="leaderboard" id="standings">
           <div className="section-heading">
             <div>
-              <span className="eyebrow">Season standing</span>
+              <span className="eyebrow">Season ladder</span>
               <h2>Standings</h2>
             </div>
             <Trophy size={22} />

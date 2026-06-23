@@ -105,7 +105,7 @@ export function ArenaScene({ phase, shooters, hud }: ArenaSceneProps) {
   const showFlash = phase === "settled" && !!you;
   const flashText = you
     ? you.shots <= 0
-      ? "NO KICK"
+      ? "NO SHOT"
       : you.goals > 0
         ? you.goals > 1
           ? `${you.goals} GOALS`

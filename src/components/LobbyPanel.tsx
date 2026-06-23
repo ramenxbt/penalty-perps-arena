@@ -41,7 +41,7 @@ export function LobbyPanel(props: {
   const ctaLabel = outOfRounds
     ? "Out of rounds today"
     : ready
-      ? "Enter arena"
+      ? "Start match"
       : "Syncing market";
 
   return (
@@ -107,7 +107,7 @@ export function LobbyPanel(props: {
           <small>paper</small>
         </div>
         <div className="fact-cell">
-          <span>YOUR SEED</span>
+          <span>YOUR RANK</span>
           <strong>Rank {seed.rank}</strong>
           <small>{seed.points.toLocaleString()} pts</small>
         </div>

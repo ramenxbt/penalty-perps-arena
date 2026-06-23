@@ -145,12 +145,10 @@ export function MatchResults(props: {
           onClick={onPlayAgain}
           disabled={outOfRounds}
         >
-          {outOfRounds ? "Out of rounds today" : "Find new match"}
+          {outOfRounds ? "Out of rounds today" : "Play again"}
         </button>
         <span className="cta-note">
-          {outOfRounds
-            ? "New rounds unlock tomorrow."
-            : roundsLeft + " of rounds ready"}
+          {outOfRounds ? "New rounds unlock tomorrow." : "Fresh 5-round cup ready"}
         </span>
       </div>
     </section>
