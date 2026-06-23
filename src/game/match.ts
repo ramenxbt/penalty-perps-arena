@@ -8,7 +8,13 @@
 import { roundPoints } from "./engine";
 import { BoardRow, Shooter } from "./types";
 
-export type SessionPhase = "lobby" | "countdown" | "in_match" | "round_break" | "match_results";
+export type SessionPhase =
+  | "welcome"
+  | "lobby"
+  | "countdown"
+  | "in_match"
+  | "round_break"
+  | "match_results";
 
 /** A competitor in a match: you, or a simulated AI squad. */
 export type MatchParticipant = {

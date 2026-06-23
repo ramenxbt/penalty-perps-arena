@@ -27,7 +27,7 @@ const MATCH_ROUNDS = RULES.matchRounds;
 export function useSession() {
   const game = useGameSimulation();
 
-  const [sessionPhase, setSessionPhase] = useState<SessionPhase>("lobby");
+  const [sessionPhase, setSessionPhase] = useState<SessionPhase>("welcome");
   const [participants, setParticipants] = useState<MatchParticipant[]>([]);
   const [roundIndex, setRoundIndex] = useState(0); // 0-based index of the active round
   const [bestRound, setBestRound] = useState({ round: 0, goals: 0 });
@@ -98,6 +98,10 @@ export function useSession() {
     game.resetRound();
     setSessionPhase("in_match");
   }, [roundIndex, finishMatch, game]);
+
+  const enterLobby = useCallback(() => {
+    setSessionPhase("lobby");
+  }, []);
 
   const findNewMatch = useCallback(() => {
     game.resetForMatch();
@@ -183,5 +187,6 @@ export function useSession() {
     startMatch,
     advanceRound,
     findNewMatch,
+    enterLobby,
   };
 }

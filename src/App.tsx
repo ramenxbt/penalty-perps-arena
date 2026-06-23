@@ -19,6 +19,7 @@ import { MatchResults } from "./components/MatchResults";
 import { PnlGauge } from "./components/PnlGauge";
 import { RoundBreak } from "./components/RoundBreak";
 import { TradeTicker } from "./components/TradeTicker";
+import { WelcomeScreen } from "./components/WelcomeScreen";
 import { useAuth, truncateAddress } from "./auth/AuthContext";
 import { configurationError, env, features } from "./config/env";
 import { formatMarketPrice, getMarketAsset } from "./game/markets";
@@ -81,6 +82,23 @@ export function App() {
   const game = useSession();
   const auth = useAuth();
   const audio = useArenaAudio(game.phase, game.outcome, game.shooters);
+
+  const needsConnect = features.privy && !auth.isAuthenticated;
+  if (game.sessionPhase === "welcome") {
+    return (
+      <WelcomeScreen
+        ctaLabel={needsConnect ? "Connect to play" : "Enter arena"}
+        note={
+          needsConnect
+            ? "Connect a wallet, email, or X to compete on the season ladder. No deposits, paper only."
+            : auth.isAuthenticated
+              ? `Signed in as ${auth.user?.displayName ?? "player"}. Cup run: 5 rounds against the field.`
+              : "Jump in as a guest. Cup run: 5 rounds against the field, paper only."
+        }
+        onCta={needsConnect ? auth.login : game.enterLobby}
+      />
+    );
+  }
 
   const inLobby = game.sessionPhase === "lobby";
   const inCountdown = game.sessionPhase === "countdown";

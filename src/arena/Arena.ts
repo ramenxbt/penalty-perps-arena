@@ -94,7 +94,7 @@ export class Arena {
       // A cute critter stands just behind its ball, facing the camera.
       const critter = createCritter({
         kind: critterKindForIndex(i),
-        color: shooter.isYou ? 0xb7ff4a : CRITTER_COLORS[i % CRITTER_COLORS.length],
+        color: shooter.isYou ? 0x5b9dff : CRITTER_COLORS[i % CRITTER_COLORS.length],
       });
       critter.scale.setScalar(shooter.isYou ? 0.96 : 0.78);
       critter.position.set(laneX, 0, REST_Z + 0.62);
@@ -105,13 +105,13 @@ export class Arena {
       if (shooter.isYou) {
         ring = new THREE.Mesh(
           new THREE.RingGeometry(0.4, 0.52, 40),
-          new THREE.MeshBasicMaterial({ color: 0xb7ff4a, transparent: true, opacity: 0.9, toneMapped: false }),
+          new THREE.MeshBasicMaterial({ color: 0x5b9dff, transparent: true, opacity: 0.9, toneMapped: false }),
         );
         ring.rotation.x = -Math.PI / 2;
         ring.position.set(laneX, 0.04, REST_Z + 0.5);
         scene.add(ring);
         if (quality.glow) {
-          glow = createGlowSprite(0xb7ff4a, 1.6);
+          glow = createGlowSprite(0x5b9dff, 1.6);
           glow.position.set(laneX, 0.5, REST_Z + 0.62);
           scene.add(glow);
         }
@@ -193,7 +193,7 @@ export class Arena {
           this.resolved.add(lane.id);
           const flashX = scored ? lane.targetX : lane.targetX * 0.5;
           this.shotFlash.position.set(flashX, 1.3, GOAL_Z + 0.3);
-          (this.shotFlash.material as THREE.SpriteMaterial).color.set(scored ? 0xb7ff4a : 0xff5370);
+          (this.shotFlash.material as THREE.SpriteMaterial).color.set(scored ? 0x5b9dff : 0xff5370);
           this.flashStrength = 1;
           if (scored) {
             this.tmp.set(lane.targetX, 1.45, GOAL_Z - 0.55);

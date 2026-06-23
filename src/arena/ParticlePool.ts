@@ -18,7 +18,7 @@ type Particle = {
 };
 
 const GRAVITY = -9.5;
-export const GOAL_COLORS = [0xb7ff4a, 0x65d8ff, 0xf6b73c, 0xffffff, 0xeaff9c];
+export const GOAL_COLORS = [0x5b9dff, 0x65d8ff, 0xf6b73c, 0xffffff, 0xbcd6ff];
 export const SAVE_COLORS = [0xff5370, 0x9aa3ad, 0xd8dde4];
 
 export class ParticlePool {
