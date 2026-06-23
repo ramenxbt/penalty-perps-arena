@@ -172,6 +172,11 @@ export function useSession() {
   }, [sessionPhase]);
 
   // Soft auto-advance out of the round break with a visible countdown (final round waits).
+  // `advanceRound` closes over `game` (a fresh object each render), so it is not stable.
+  // Call it through a ref so this effect does not re-run (and re-setState) every render.
+  const advanceRef = useRef(advanceRound);
+  advanceRef.current = advanceRound;
+
   useEffect(() => {
     if (sessionPhase !== "round_break") return undefined;
     if (roundIndex + 1 >= MATCH_ROUNDS) return undefined;
@@ -186,11 +191,11 @@ export function useSession() {
       setBreakNow(t);
       if (t >= breakEndsAtRef.current) {
         window.clearInterval(id);
-        advanceRound();
+        advanceRef.current();
       }
     }, 200);
     return () => window.clearInterval(id);
-  }, [sessionPhase, roundIndex, advanceRound]);
+  }, [sessionPhase, roundIndex]);
 
   const standings = useMemo(() => rankParticipants(participants), [participants]);
   const isFinalRound = roundIndex + 1 >= MATCH_ROUNDS;
