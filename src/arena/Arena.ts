@@ -117,6 +117,8 @@ export class Arena {
       });
       critter.scale.setScalar(shooter.isYou ? 0.96 : 0.78);
       critter.position.set(laneX, 0, REST_Z + 0.62);
+      // Shooters face the goal (away from camera); only the keeper faces us.
+      critter.rotation.y = Math.PI;
       scene.add(critter);
 
       let ring: THREE.Mesh | null = null;
@@ -376,7 +378,7 @@ export class Arena {
       lane.ball.position.set(lane.laneX, lane.radius, REST_Z);
       lane.ball.rotation.set(0, 0, 0);
       lane.critter.position.set(lane.laneX, 0, critterBaseZ);
-      lane.critter.rotation.set(0, 0, 0);
+      lane.critter.rotation.set(0, Math.PI, 0);
       if (lane.ring) lane.ring.position.set(lane.laneX, 0.04, REST_Z + 0.5);
       if (lane.glow) {
         lane.glow.position.set(lane.laneX, 0.5, critterBaseZ);

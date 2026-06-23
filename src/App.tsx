@@ -338,30 +338,6 @@ export function App() {
               />
             </Suspense>
 
-            <div className="arena-hud">
-              <div className="hud-pill">
-                <span>Round</span>
-                <strong>{game.roundNumber}/{game.matchRounds}</strong>
-              </div>
-              <div
-                className={
-                  "hud-pill streak-pill" +
-                  (game.streak >= 2 ? " on-fire" : "") +
-                  (game.streak >= 4 ? " blaze" : "")
-                }
-              >
-                <span>{game.streak >= 4 ? "On fire" : "Streak"}</span>
-                <strong>
-                  {game.streak >= 2 && <Flame size={13} aria-hidden="true" />}
-                  {game.streak}
-                </strong>
-              </div>
-              <div className="hud-pill">
-                <span>Score</span>
-                <strong>{game.score.toLocaleString()}</strong>
-              </div>
-            </div>
-
             <TradeTicker
               price={game.derived.price}
               asset={game.marketAsset}

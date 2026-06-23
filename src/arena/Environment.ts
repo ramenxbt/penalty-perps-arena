@@ -13,6 +13,9 @@ const SEAT_PALETTE = [0xffc53d, 0x65d8ff, 0xf6b73c, 0xeaf2ff, 0xff5370, 0x8ea7ff
 
 export class Environment {
   private disposables: Array<{ dispose: () => void }> = [];
+  private crowd: THREE.InstancedMesh | null = null;
+  private crowdBase: { x: number; y: number; z: number; scale: number; phase: number }[] = [];
+  private crowdDummy = new THREE.Object3D();
 
   constructor(scene: THREE.Scene, quality: QualitySettings) {
     this.addSky(scene);
@@ -91,14 +94,18 @@ export class Environment {
     const geometry = this.track(new THREE.BoxGeometry(0.5, 0.42, 0.5));
     const material = this.track(new THREE.MeshStandardMaterial({ roughness: 0.85, metalness: 0.0 }));
     const seats = new THREE.InstancedMesh(geometry, material, count);
-    seats.instanceMatrix.setUsage(THREE.StaticDrawUsage);
+    // Dynamic: the crowd bobs every frame (see update), so the matrix buffer is rewritten.
+    seats.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
 
     const dummy = new THREE.Object3D();
     const color = new THREE.Color();
     transforms.forEach((t, i) => {
+      const scale = 0.82 + Math.random() * 0.5;
+      const phase = Math.random() * Math.PI * 2;
+      this.crowdBase.push({ x: t.x, y: t.y, z: t.z, scale, phase });
       dummy.position.set(t.x, t.y, t.z);
       dummy.lookAt(0, t.y, -2);
-      dummy.scale.setScalar(0.82 + Math.random() * 0.5);
+      dummy.scale.setScalar(scale);
       dummy.updateMatrix();
       seats.setMatrixAt(i, dummy.matrix);
       const base = SEAT_PALETTE[Math.floor(Math.random() * SEAT_PALETTE.length)];
@@ -108,11 +115,27 @@ export class Environment {
     seats.instanceMatrix.needsUpdate = true;
     if (seats.instanceColor) seats.instanceColor.needsUpdate = true;
     scene.add(seats);
+    this.crowd = seats;
     this.track(seats);
   }
 
-  // Static crowd, so update is a no-op; kept for a uniform Arena interface.
-  update(_dt: number, _elapsed: number) {}
+  /** Restless crowd: each seat bobs on its own phase, with a slow stadium-wide wave. */
+  update(_dt: number, elapsed: number) {
+    const crowd = this.crowd;
+    if (!crowd) return;
+    const dummy = this.crowdDummy;
+    for (let i = 0; i < this.crowdBase.length; i += 1) {
+      const seat = this.crowdBase[i];
+      const wave = seat.x * 0.12 + seat.z * 0.12; // ripple across the stands
+      const bob = Math.sin(elapsed * 2.1 + seat.phase + wave) * 0.12;
+      dummy.position.set(seat.x, seat.y + bob, seat.z);
+      dummy.lookAt(0, seat.y + bob, -2);
+      dummy.scale.setScalar(seat.scale);
+      dummy.updateMatrix();
+      crowd.setMatrixAt(i, dummy.matrix);
+    }
+    crowd.instanceMatrix.needsUpdate = true;
+  }
 
   dispose() {
     this.disposables.forEach((item) => item.dispose());

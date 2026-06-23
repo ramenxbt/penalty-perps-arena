@@ -56,12 +56,6 @@ export function createGoal(width: number, height: number, depth: number): THREE.
   const roofR = roofL.clone();
   roofR.position.x = width / 2;
 
-  // Side stanchions: a short vertical at the back corners reinforce the slanted profile.
-  const stanchionL = vBar(backH * 0.62);
-  stanchionL.position.set(-width / 2, backH * 0.31, -depth * 0.5);
-  const stanchionR = stanchionL.clone();
-  stanchionR.position.x = width / 2;
-
   group.add(
     frontL,
     frontR,
@@ -74,8 +68,6 @@ export function createGoal(width: number, height: number, depth: number): THREE.
     groundBack,
     roofL,
     roofR,
-    stanchionL,
-    stanchionR,
   );
   group.traverse((o) => {
     o.castShadow = true;
