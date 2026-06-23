@@ -20,9 +20,15 @@ export function RoundBreak(props: {
   totalRounds: number;
   standings: BreakRow[]; // already sorted by rank ascending
   isFinal: boolean;
+  secondsLeft: number | null; // auto-advance countdown, null on the final round
   onNext: () => void;
 }) {
-  const { round, totalRounds, standings, isFinal, onNext } = props;
+  const { round, totalRounds, standings, isFinal, secondsLeft, onNext } = props;
+  const nextLabel = isFinal
+    ? "See results"
+    : secondsLeft != null
+      ? `Next round (${secondsLeft}s)`
+      : "Next round";
 
   return (
     <div className="round-break" role="group" aria-label="Round standings">
@@ -32,7 +38,7 @@ export function RoundBreak(props: {
         </strong>
         <span className="eyebrow">this match</span>
         <button className="break-next" onClick={onNext}>
-          {isFinal ? "See results" : "Next round"}
+          {nextLabel}
         </button>
       </div>
       <div className="break-list">

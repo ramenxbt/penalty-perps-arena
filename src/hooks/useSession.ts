@@ -20,7 +20,6 @@ import {
 import { Direction } from "../game/types";
 import { useGameSimulation } from "./useGameSimulation";
 
-const COUNTDOWN_MS = 2200;
 const ROUND_BREAK_AUTO_MS = 9000;
 const MATCH_ROUNDS = RULES.matchRounds;
 
@@ -33,7 +32,10 @@ export function useSession() {
   const [bestRound, setBestRound] = useState({ round: 0, goals: 0 });
   const [rankBefore, setRankBefore] = useState(0);
   const [matchResult, setMatchResult] = useState<MatchResult | null>(null);
+  const [countin, setCountin] = useState(3);
+  const [breakNow, setBreakNow] = useState(0);
 
+  const breakEndsAtRef = useRef(0);
   const talliedRef = useRef(-1);
   const mountedRef = useRef(true);
   useEffect(() => {
@@ -148,23 +150,54 @@ export function useSession() {
     setSessionPhase("round_break");
   }, [game.phase, game.outcome, game.shooters, sessionPhase, roundIndex]);
 
-  // Countdown -> in_match.
+  // Countdown -> in_match, ticking a real 3, 2, 1.
   useEffect(() => {
     if (sessionPhase !== "countdown") return undefined;
-    const timer = window.setTimeout(() => mountedRef.current && setSessionPhase("in_match"), COUNTDOWN_MS);
-    return () => window.clearTimeout(timer);
+    setCountin(3);
+    let n = 3;
+    const id = window.setInterval(() => {
+      if (!mountedRef.current) {
+        window.clearInterval(id);
+        return;
+      }
+      n -= 1;
+      if (n <= 0) {
+        window.clearInterval(id);
+        setSessionPhase("in_match");
+      } else {
+        setCountin(n);
+      }
+    }, 800);
+    return () => window.clearInterval(id);
   }, [sessionPhase]);
 
-  // Soft auto-advance out of the round break (except the final round, which waits for the player).
+  // Soft auto-advance out of the round break with a visible countdown (final round waits).
   useEffect(() => {
     if (sessionPhase !== "round_break") return undefined;
     if (roundIndex + 1 >= MATCH_ROUNDS) return undefined;
-    const timer = window.setTimeout(() => mountedRef.current && advanceRound(), ROUND_BREAK_AUTO_MS);
-    return () => window.clearTimeout(timer);
+    breakEndsAtRef.current = Date.now() + ROUND_BREAK_AUTO_MS;
+    setBreakNow(Date.now());
+    const id = window.setInterval(() => {
+      if (!mountedRef.current) {
+        window.clearInterval(id);
+        return;
+      }
+      const t = Date.now();
+      setBreakNow(t);
+      if (t >= breakEndsAtRef.current) {
+        window.clearInterval(id);
+        advanceRound();
+      }
+    }, 200);
+    return () => window.clearInterval(id);
   }, [sessionPhase, roundIndex, advanceRound]);
 
   const standings = useMemo(() => rankParticipants(participants), [participants]);
   const isFinalRound = roundIndex + 1 >= MATCH_ROUNDS;
+  const breakSecondsLeft =
+    sessionPhase === "round_break" && !isFinalRound
+      ? Math.max(0, Math.ceil((breakEndsAtRef.current - breakNow) / 1000))
+      : null;
 
   // Preview field for the lobby (you + AI squads), before a match is built.
   const lobbyField = useMemo(
@@ -180,6 +213,8 @@ export function useSession() {
     matchRounds: MATCH_ROUNDS,
     roundNumber: roundIndex + 1,
     isFinalRound,
+    countin,
+    breakSecondsLeft,
     participants: standings,
     lobbyField,
     matchResult,

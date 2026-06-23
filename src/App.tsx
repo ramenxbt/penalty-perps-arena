@@ -153,7 +153,7 @@ export function App() {
         : trading && !game.canCloseNow
           ? "Waiting for the live price before you can close."
         : trading
-          ? `Close while you are up. It closes for you in ${seconds}s.`
+          ? "Close while you are up to bank your shots."
           : settling
             ? "Settling your trade."
           : closeFailed
@@ -182,9 +182,7 @@ export function App() {
     <main className="app-shell">
       <section className="left-rail" aria-label="Game navigation">
         <div className="brand-mark">
-          <div className="brand-ball">
-            <Goal size={24} />
-          </div>
+          <div className="brand-ball" aria-hidden="true">PP</div>
           <div>
             <p>Global Penalty Circuit</p>
             <strong>Finals Arena</strong>
@@ -318,7 +316,7 @@ export function App() {
             {inCountdown && (
               <div className="countdown-overlay" aria-hidden="true">
                 <span>Round {game.roundNumber} of {game.matchRounds}</span>
-                <strong>Kickoff</strong>
+                <strong>{game.countin}</strong>
               </div>
             )}
 
@@ -328,6 +326,7 @@ export function App() {
                 totalRounds={game.matchRounds}
                 standings={standRows}
                 isFinal={game.isFinalRound}
+                secondsLeft={game.breakSecondsLeft}
                 onNext={game.advanceRound}
               />
             )}
@@ -428,8 +427,8 @@ export function App() {
               disabled={!game.canCloseNow}
             >
               {game.canCloseNow
-                ? `Close ${game.pnlPct >= 0 ? "+" : ""}${game.pnlPct.toFixed(2)}% · ${seconds}s`
-                : `Live feed syncing · ${seconds}s`}
+                ? `Close ${game.pnlPct >= 0 ? "+" : ""}${game.pnlPct.toFixed(2)}%`
+                : "Waiting for live price"}
             </button>
           ) : settling ? (
             <button className="primary-action full" type="button" disabled aria-busy="true">

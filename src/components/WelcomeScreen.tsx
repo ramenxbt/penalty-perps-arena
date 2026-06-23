@@ -4,7 +4,7 @@
  * focused so a newcomer immediately understands the loop before the terminal appears.
  */
 
-import { Goal, Target, TrendingUp, Trophy } from "lucide-react";
+import { Target, TrendingUp, Trophy } from "lucide-react";
 
 const STEPS = [
   { icon: TrendingUp, title: "Trade", body: "Call Long or Short on a live crypto chart." },
@@ -17,9 +17,7 @@ export function WelcomeScreen(props: { ctaLabel: string; note: string; onCta: ()
     <main className="welcome-screen">
       <section className="welcome-card">
         <div className="welcome-brand">
-          <div className="welcome-mark">
-            <Goal size={26} />
-          </div>
+          <div className="welcome-mark" aria-hidden="true">PP</div>
           <span className="eyebrow">Global Penalty Circuit</span>
         </div>
 

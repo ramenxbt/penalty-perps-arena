@@ -52,6 +52,7 @@ export function useGameSimulation() {
 
   const mountedRef = useRef(true);
   const closingRef = useRef(false);
+  const closeRetriesRef = useRef(0);
   const feedPriceRef = useRef(feed.price);
 
   useEffect(() => {
@@ -182,6 +183,21 @@ export function useGameSimulation() {
       if (current >= round.closesAt) closeRound(round);
     }, 200);
     return () => window.clearInterval(tick);
+  }, [phase, round, closeRound]);
+
+  // Guaranteed exit from a failed close: auto-retry a couple of times so a transient
+  // settlement error in connected mode can never deadlock the match.
+  useEffect(() => {
+    if (phase !== "closeFailed") {
+      closeRetriesRef.current = 0;
+      return undefined;
+    }
+    if (!round || closeRetriesRef.current >= 2) return undefined;
+    const id = window.setTimeout(() => {
+      closeRetriesRef.current += 1;
+      closeRound(round);
+    }, 3000);
+    return () => window.clearTimeout(id);
   }, [phase, round, closeRound]);
 
   const openTrade = useCallback(
