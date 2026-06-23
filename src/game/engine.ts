@@ -117,6 +117,18 @@ export function resolveShots(pnlPct: number): { shots: number; openness: number 
 }
 
 /**
+ * The downside mirror of resolveShots: the worse the loss, the more goals the keeper puts
+ * past you. A profit or shallow loss concedes nothing; deep losses concede 1-3, costing
+ * points and dropping you on the ladder. Tunable; the server must mirror these thresholds.
+ */
+export function concededFor(pnlPct: number): number {
+  if (pnlPct < -45) return 3; // blowout
+  if (pnlPct < -25) return 2;
+  if (pnlPct < -10) return 1;
+  return 0;
+}
+
+/**
  * Roll the earned shots against the keeper. Each shot scores with probability
  * `openness`, nudged up slightly per shot so a clean trade rarely whiffs entirely.
  * `rng` is injectable so the server can use its own trusted randomness.
@@ -135,11 +147,18 @@ export function roundPoints(goals: number, pnlPct: number, streak: number): numb
   // pnlPct is now whole-percent (tens of %), so a smaller multiplier keeps the profit bonus
   // in the same ballpark as goal points instead of dwarfing them.
   const profitBonus = Math.max(0, Math.round(pnlPct * 5));
+  // Conceding costs you: each goal against subtracts a goal's worth of points, so a bad
+  // cup can go negative and drop you on the ladder. Not floored at 0 here on purpose;
+  // cumulative score is floored where it is applied.
+  const concededPenalty = concededFor(pnlPct) * RULES.basePointsPerGoal;
   const streakBonus = goals > 0 ? Math.min(60, streak * 10) : 0;
-  return Math.max(0, goalPoints + profitBonus + streakBonus);
+  return goalPoints + profitBonus + streakBonus - concededPenalty;
 }
 
-export function roundSummary(pnlPct: number, shots: number, goals: number): string {
+export function roundSummary(pnlPct: number, shots: number, goals: number, conceded: number): string {
+  if (conceded >= 3) return "Blown out. Keeper put three past you.";
+  if (conceded === 2) return "Rough loss. Two conceded.";
+  if (conceded === 1) return "Loss punished. One conceded.";
   if (shots === 0) return "Liquidated before the whistle. No kick.";
   if (goals === 0) return "Keeper read the tape. Blocked.";
   if (goals >= shots && shots >= 2) return "Clean sweep. Net ripped.";
@@ -160,6 +179,7 @@ export function resolveRound(params: {
   const pnlPct = computePnlPct(direction, entryPrice, exitPrice);
   const { shots, openness } = resolveShots(pnlPct);
   const goals = rollGoals(shots, openness, rng);
+  const conceded = concededFor(pnlPct);
   const points = roundPoints(goals, pnlPct, streak);
   return {
     market,
@@ -167,10 +187,11 @@ export function resolveRound(params: {
     profit: pnlPct > 0,
     shots,
     goals,
+    conceded,
     openness,
     points,
     entryPrice,
     exitPrice,
-    summary: roundSummary(pnlPct, shots, goals),
+    summary: roundSummary(pnlPct, shots, goals, conceded),
   };
 }

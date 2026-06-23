@@ -201,6 +201,7 @@ export class Arena {
       const noKick = shots <= 0;
       let kickPulse = 0;
       let celebrate = 0;
+      let slump = 0; // bad-loss sulk: head down, shoulders dropped
 
       if (resolving && !noKick) {
         const t = sinceMs - VOLLEY_LEAD_IN_MS;
@@ -293,7 +294,33 @@ export class Arena {
         kickPulse = t >= 0 ? Math.sin(clamp01(localMs / FLIGHT_MS) * Math.PI) : 0;
         celebrate = scored && settleQ > 0 ? Math.abs(Math.sin(elapsedSec * 10)) * 0.16 : 0;
       } else if (resolving && noKick) {
-        lane.ball.position.set(lane.laneX, lane.radius, REST_Z);
+        // Conceded: no kick for you. The keeper boots the ball back out past the camera, a
+        // humiliating clearance, while your critter slumps. The worse the loss, the harsher.
+        const t = sinceMs - VOLLEY_LEAD_IN_MS;
+        if (t < 0) {
+          lane.ball.position.set(lane.laneX, lane.radius, REST_Z);
+        } else {
+          const p = easeOut(clamp01(t / FLIGHT_MS));
+          lane.ball.position.x = THREE.MathUtils.lerp(lane.laneX, lane.laneX * 1.5, p);
+          lane.ball.position.z = THREE.MathUtils.lerp(REST_Z, -3.2, p);
+          lane.ball.position.y = THREE.MathUtils.lerp(lane.radius, 0.4, p) + Math.sin(p * Math.PI) * 1.6;
+          lane.ball.rotation.x -= 0.4;
+          slump = clamp01(t / (FLIGHT_MS * 1.1));
+
+          // Keeper struts out and celebrates the clearance.
+          keeperTargetX = 0;
+          keeperHop = Math.sin(p * Math.PI) * 0.5;
+
+          if (p >= 0.35 && !this.resolved.has("concede")) {
+            this.resolved.add("concede");
+            this.shotFlash.position.set(0, 1.3, GOAL_Z + 0.3);
+            (this.shotFlash.material as THREE.SpriteMaterial).color.set(0xff5247);
+            this.flashStrength = 1;
+            this.tmp.set(0, 1.0, KEEPER_Z);
+            this.particles.burst(this.tmp, 14, SAVE_COLORS, 0.6);
+            this.keeperPulseAt = elapsedSec;
+          }
+        }
       } else {
         // Idle / trading: clean glide home, then a gentle bob + spin.
         const homeY = lane.radius + Math.sin(elapsedSec * 2 + lane.laneX) * 0.015;
@@ -303,8 +330,12 @@ export class Arena {
         lane.ball.rotation.x += 0.002;
       }
 
-      lane.critter.position.set(lane.laneX, bobY + kickPulse * 0.22 + celebrate, critterBaseZ - kickPulse * 0.25);
-      lane.critter.rotation.x = -kickPulse * 0.4;
+      lane.critter.position.set(
+        lane.laneX,
+        bobY + kickPulse * 0.22 + celebrate - slump * 0.22,
+        critterBaseZ - kickPulse * 0.25,
+      );
+      lane.critter.rotation.x = -kickPulse * 0.4 + slump * 0.5;
 
       if (lane.glow) {
         lane.glow.position.set(lane.laneX, 0.5 + kickPulse * 0.22, critterBaseZ);

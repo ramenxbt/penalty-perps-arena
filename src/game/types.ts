@@ -49,6 +49,8 @@ export type RoundOutcome = {
   profit: boolean;
   shots: number;
   goals: number;
+  /** Goals the keeper puts past you on a bad loss. The mirror of shots: worse trade, more conceded. */
+  conceded: number;
   openness: number;
   points: number;
   entryPrice: number;

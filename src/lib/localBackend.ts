@@ -132,7 +132,7 @@ export class LocalGameApi implements GameApi {
 
     this.profile = {
       ...this.profile,
-      score: this.profile.score + outcome.points,
+      score: Math.max(0, this.profile.score + outcome.points),
       streak: outcome.profit ? this.profile.streak + 1 : 0,
       activeRound: null,
       nextMarket: this.profile.attemptsRemaining > 0 ? randomMarketAsset(round.market).symbol : null,
@@ -163,10 +163,11 @@ export class LocalGameApi implements GameApi {
   private simulateCoShooters(): Shooter[] {
     const aiRows = this.rows.filter((row) => row.isAi).slice(0, MAX_CO_SHOOTERS);
     return aiRows.map((row) => {
-      const pnlPct = Math.random() * 0.16 - 0.06; // roughly -0.06% .. +0.10%
+      // Match the lively arena scale (tens of percent), so AI earn shots and concede too.
+      const pnlPct = Math.random() * 70 - 26; // roughly -26% .. +44%
       const { shots, openness } = resolveShots(pnlPct);
       const goals = rollGoals(shots, openness);
-      row.score += roundPoints(goals, pnlPct, row.streak);
+      row.score = Math.max(0, row.score + roundPoints(goals, pnlPct, row.streak));
       return {
         id: row.id,
         name: row.name,
