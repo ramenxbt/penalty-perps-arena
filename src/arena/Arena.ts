@@ -44,6 +44,7 @@ const GOAL_H = 3.4;
 const GOAL_DEPTH = 1.9;
 const KEEPER_Z = GOAL_Z + 0.75;
 const SPACING = 1.2;
+const SETTLE_MS = 600; // how long a landed ball takes to drop and roll to rest
 
 const easeOut = (t: number) => 1 - Math.pow(1 - t, 3);
 const clamp01 = (t: number) => Math.min(1, Math.max(0, t));
@@ -158,27 +159,48 @@ export class Arena {
       const noKick = !shooter || shooter.shots <= 0;
       const shotAtMs = VOLLEY_LEAD_IN_MS + i * SHOT_BEAT_MS;
       const p = resolving ? easeOut(clamp01((sinceMs - shotAtMs) / FLIGHT_MS)) : 0;
+      // After the flight lands, settleQ runs 0 -> 1 so the ball drops and rolls to rest
+      // instead of hovering and spinning forever.
+      const settleQ = resolving && !noKick ? clamp01((sinceMs - shotAtMs - FLIGHT_MS) / SETTLE_MS) : 0;
 
       if (resolving && !noKick && sinceMs >= shotAtMs) {
         if (scored) {
-          // Straight into the back of the net.
-          lane.ball.position.x = THREE.MathUtils.lerp(lane.laneX, lane.targetX, p);
-          lane.ball.position.z = THREE.MathUtils.lerp(REST_Z, GOAL_Z - 0.55, p);
-          lane.ball.position.y = THREE.MathUtils.lerp(lane.radius, 1.45, Math.sin(p * Math.PI * 0.5));
+          if (settleQ <= 0) {
+            // Flight into the back of the net.
+            lane.ball.position.x = THREE.MathUtils.lerp(lane.laneX, lane.targetX, p);
+            lane.ball.position.z = THREE.MathUtils.lerp(REST_Z, GOAL_Z - 0.55, p);
+            lane.ball.position.y = THREE.MathUtils.lerp(lane.radius, 1.45, Math.sin(p * Math.PI * 0.5));
+          } else {
+            // Drop down the net and bounce to rest on the goal floor.
+            const drop = easeOut(settleQ);
+            lane.ball.position.set(
+              lane.targetX,
+              THREE.MathUtils.lerp(1.45, lane.radius, drop) + Math.sin(settleQ * Math.PI) * 0.16,
+              GOAL_Z - 0.55,
+            );
+          }
         } else if (p < 0.5) {
           // First half: in to the keeper.
           const a = p / 0.5;
           lane.ball.position.x = THREE.MathUtils.lerp(lane.laneX, lane.targetX * 0.5, a);
           lane.ball.position.z = THREE.MathUtils.lerp(REST_Z, KEEPER_Z, a);
           lane.ball.position.y = THREE.MathUtils.lerp(lane.radius, 1.0, Math.sin(a * Math.PI * 0.5));
-        } else {
+        } else if (settleQ <= 0) {
           // Second half: deflected back out toward the camera, so a block is unmistakable.
           const b = (p - 0.5) / 0.5;
           lane.ball.position.x = THREE.MathUtils.lerp(lane.targetX * 0.5, lane.targetX * 1.4, b);
           lane.ball.position.z = THREE.MathUtils.lerp(KEEPER_Z, -1.4, b);
           lane.ball.position.y = 1.0 * (1 - b) + 0.32 + Math.sin(b * Math.PI) * 0.85;
+        } else {
+          // The parried ball rolls forward to a stop on the turf.
+          lane.ball.position.set(
+            lane.targetX * 1.4,
+            lane.radius,
+            THREE.MathUtils.lerp(-1.4, -0.9, easeOut(settleQ)),
+          );
         }
-        lane.ball.rotation.x -= 0.26;
+        // Spin hard through the flight, then damp to a standstill as it settles.
+        lane.ball.rotation.x -= 0.34 * (1 - settleQ);
 
         // The actively-flying shot drives the keeper: dive away on a goal, meet the ball on a save.
         if (p > 0.04 && p < 1) {
@@ -221,7 +243,9 @@ export class Arena {
       const kickPulse = resolving && !noKick && sinceMs >= shotAtMs
         ? Math.sin(clamp01((sinceMs - shotAtMs) / FLIGHT_MS) * Math.PI)
         : 0;
-      lane.critter.position.set(lane.laneX, bobY + kickPulse * 0.22, critterBaseZ - kickPulse * 0.25);
+      // Scored shooters celebrate with a bouncy hop once their goal lands.
+      const celebrate = scored && settleQ > 0 ? Math.abs(Math.sin(elapsedSec * 10)) * 0.16 : 0;
+      lane.critter.position.set(lane.laneX, bobY + kickPulse * 0.22 + celebrate, critterBaseZ - kickPulse * 0.25);
       lane.critter.rotation.x = -kickPulse * 0.4;
 
       if (lane.glow) {
