@@ -12,8 +12,9 @@ import {
   Wallet,
   Zap,
 } from "lucide-react";
-import { lazy, Suspense } from "react";
+import { lazy, Suspense, useEffect, useRef } from "react";
 import { Candles } from "./components/Candles";
+import { PowerMeter } from "./components/PowerMeter";
 import { LobbyPanel } from "./components/LobbyPanel";
 import { MatchResults } from "./components/MatchResults";
 import { PnlGauge } from "./components/PnlGauge";
@@ -82,6 +83,14 @@ export function App() {
   const game = useSession();
   const auth = useAuth();
   const audio = useArenaAudio(game.phase, game.outcome, game.shooters);
+
+  // Bright blip when a live trade crosses into a higher shot tier.
+  const prevShotsRef = useRef(0);
+  useEffect(() => {
+    const trading = game.phase === "trading";
+    if (trading && game.shotsNow > prevShotsRef.current) audio.playTick();
+    prevShotsRef.current = trading ? game.shotsNow : 0;
+  }, [game.shotsNow, game.phase, audio.playTick]);
 
   const needsConnect = features.privy && !auth.isAuthenticated;
   if (game.sessionPhase === "welcome") {
@@ -388,6 +397,14 @@ export function App() {
           />
 
           {trading && (
+            <PowerMeter
+              shots={game.shotsNow}
+              openness={game.opennessNow}
+              powerRatio={game.powerRatio}
+            />
+          )}
+
+          {trading && (
             <div
               className={game.pnlPct >= 0 ? "pressure-strip up" : "pressure-strip down"}
               role="group"
@@ -426,9 +443,11 @@ export function App() {
               onClick={closeWithSound}
               disabled={!game.canCloseNow}
             >
-              {game.canCloseNow
-                ? `Close ${game.pnlPct >= 0 ? "+" : ""}${game.pnlPct.toFixed(2)}%`
-                : "Waiting for live price"}
+              {!game.canCloseNow
+                ? "Waiting for live price"
+                : game.shotsNow > 0
+                  ? `Bank ${game.shotsNow} ${game.shotsNow === 1 ? "shot" : "shots"}`
+                  : "Close (no shots yet)"}
             </button>
           ) : settling ? (
             <button className="primary-action full" type="button" disabled aria-busy="true">

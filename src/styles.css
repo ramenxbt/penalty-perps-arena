@@ -2035,3 +2035,108 @@ h2 {
 .welcome-mark {
   font-size: 0.92rem;
 }
+
+/* --- live shot power meter (the trade reward, made visible) ----------- */
+.power-block {
+  display: grid;
+  gap: 8px;
+  margin: 2px 0 10px;
+  padding: 12px 14px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: #101619;
+}
+
+.power-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.power-head span {
+  font-family: "IBM Plex Mono", monospace;
+  font-size: 0.7rem;
+  text-transform: uppercase;
+  color: var(--text-soft);
+}
+
+.power-shots {
+  font-family: "IBM Plex Mono", monospace;
+  font-weight: 900;
+  font-size: 1.05rem;
+  color: var(--text-soft);
+  animation: powerpop 320ms ease;
+}
+
+.power-shots.tier-1 {
+  color: #5fe39c;
+}
+
+.power-shots.tier-2 {
+  color: var(--green);
+}
+
+.power-shots.tier-3 {
+  color: var(--gold);
+  text-shadow: 0 0 16px rgba(var(--accent-rgb), 0.5);
+}
+
+.power-track {
+  position: relative;
+  height: 12px;
+  border-radius: 999px;
+  background: #1c2620;
+  overflow: hidden;
+}
+
+.power-fill {
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  border-radius: 999px;
+  transition: width 200ms ease;
+  background: linear-gradient(90deg, #2f6d4e, var(--green));
+}
+
+.power-fill.tier-0 {
+  background: #3a4640;
+}
+
+.power-fill.tier-3 {
+  background: linear-gradient(90deg, var(--green), var(--gold));
+  box-shadow: 0 0 14px rgba(var(--accent-rgb), 0.4);
+}
+
+.power-mark {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 2px;
+  transform: translateX(-1px);
+  background: rgba(255, 255, 255, 0.14);
+}
+
+.power-mark.lit {
+  background: rgba(255, 255, 255, 0.55);
+}
+
+.power-foot {
+  font-family: "IBM Plex Mono", monospace;
+  font-size: 0.7rem;
+  color: var(--text-dim);
+}
+
+@keyframes powerpop {
+  0% {
+    transform: scale(0.7);
+    opacity: 0.4;
+  }
+  50% {
+    transform: scale(1.14);
+  }
+  100% {
+    transform: scale(1);
+    opacity: 1;
+  }
+}

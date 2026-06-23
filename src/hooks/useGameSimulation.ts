@@ -6,7 +6,7 @@
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { RULES, computePnlPct } from "../game/engine";
+import { RULES, computePnlPct, resolveShots } from "../game/engine";
 import { getMarketAsset, MarketAsset, randomMarketAsset } from "../game/markets";
 import {
   BoardRow,
@@ -285,6 +285,12 @@ export function useGameSimulation() {
     ? Math.min(1, Math.max(0, 1 - timeLeftMs / RULES.tradeWindowMs))
     : 0;
 
+  // Live "shot power": what the current trade would bank right now. Drives the meter.
+  const power = resolveShots(pnlPct);
+  const POWER_MIN = -0.05;
+  const POWER_MAX = 0.1;
+  const powerRatio = Math.max(0, Math.min(1, (pnlPct - POWER_MIN) / (POWER_MAX - POWER_MIN)));
+
   // The roster shown at rest (idle/trading); replaced by real results during the volley.
   const roster = useMemo<Shooter[]>(() => {
     const you: Shooter = {
@@ -343,6 +349,9 @@ export function useGameSimulation() {
     pnlPct,
     timeLeftMs,
     tradeProgress,
+    shotsNow: power.shots,
+    opennessNow: power.openness,
+    powerRatio,
     outcome,
     shooters: sceneShooters,
     rows,

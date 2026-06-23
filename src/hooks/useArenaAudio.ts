@@ -112,6 +112,12 @@ export function useArenaAudio(phase: RoundPhase, outcome: RoundOutcome | null, s
     tone({ frequency: 148, duration: 0.09, gain: 0.055, type: "square", delay: 0.03 });
   }, [tone]);
 
+  // A bright rising blip when the player crosses into a higher shot tier.
+  const playTick = useCallback(() => {
+    tone({ frequency: 660, duration: 0.06, gain: 0.05, type: "square" });
+    tone({ frequency: 990, duration: 0.08, gain: 0.045, type: "square", delay: 0.05 });
+  }, [tone]);
+
   const setAudioEnabled = useCallback((next: boolean) => {
     setEnabled(next);
     writeAudioPreference(next);
@@ -162,5 +168,6 @@ export function useArenaAudio(phase: RoundPhase, outcome: RoundOutcome | null, s
     unlock: getContext,
     playWhistle,
     playClose,
+    playTick,
   };
 }
