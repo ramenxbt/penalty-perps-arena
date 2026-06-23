@@ -8,12 +8,13 @@ import {
   Goal,
   Lock,
   Trophy,
+  UserRound,
   Volume2,
   VolumeX,
   Wallet,
   Zap,
 } from "lucide-react";
-import { lazy, Suspense, useEffect, useRef } from "react";
+import { lazy, Suspense, useEffect, useRef, useState } from "react";
 import { Candles } from "./components/Candles";
 import { PowerMeter } from "./components/PowerMeter";
 import { LobbyPanel } from "./components/LobbyPanel";
@@ -28,6 +29,8 @@ import { formatMarketPrice, getMarketAsset } from "./game/markets";
 import { Direction } from "./game/types";
 import { useArenaAudio } from "./hooks/useArenaAudio";
 import { useSession } from "./hooks/useSession";
+import { RULES } from "./game/engine";
+import { ProfilePanel } from "./components/profile/ProfilePanel";
 
 const ArenaScene = lazy(() => import("./ArenaScene").then((module) => ({ default: module.ArenaScene })));
 
@@ -84,6 +87,7 @@ export function App() {
   const game = useSession();
   const auth = useAuth();
   const audio = useArenaAudio(game.phase, game.outcome, game.shooters);
+  const [profileOpen, setProfileOpen] = useState(false);
 
   // Bright blip when a live trade crosses into a higher shot tier.
   const prevShotsRef = useRef(0);
@@ -243,6 +247,15 @@ export function App() {
             >
               {audio.enabled ? <Volume2 size={17} /> : <VolumeX size={17} />}
             </button>
+            <button
+              className={profileOpen ? "sound-button active" : "sound-button"}
+              type="button"
+              onClick={() => setProfileOpen((open) => !open)}
+              aria-label="Your profile"
+              title="Your profile"
+            >
+              <UserRound size={17} />
+            </button>
             <WalletButton />
           </div>
         </header>
@@ -254,7 +267,23 @@ export function App() {
           </div>
         )}
 
-        {inLobby ? (
+        {profileOpen ? (
+          <ProfilePanel
+            playerId={auth.user?.id ?? "me"}
+            handle={auth.user?.displayName ?? "@you"}
+            walletAddress={game.walletAddress}
+            isHolder={game.isHolder}
+            tokenSymbol={env.tokenSymbol}
+            rank={game.seed.rank}
+            fieldSize={Math.max(game.rows.length, game.seed.rank)}
+            seasonPoints={game.score}
+            streak={game.streak}
+            roundsLeft={game.roundsLeft}
+            dailyCap={RULES.dailyRounds}
+            lastMatch={game.matchResult}
+            onBack={() => setProfileOpen(false)}
+          />
+        ) : inLobby ? (
           <LobbyPanel
             field={game.lobbyField.map((p) => ({
               id: p.id,

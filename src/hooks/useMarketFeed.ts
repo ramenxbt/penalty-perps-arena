@@ -22,7 +22,8 @@ import { fetchLatestPrice, streamPrice } from "../lib/hyperliquid";
 
 export type FeedStatus = "connecting" | "live" | "simulated";
 
-const MAX_POINTS = 96;
+// ~3 minutes of 500ms ticks so the chart can show ~12-15 fat 15-second candles.
+const MAX_POINTS = 380;
 const CONNECT_TIMEOUT_MS = 4500; // mark simulated if no live tick by then (arena keeps ticking).
 
 export type MarketFeed = {

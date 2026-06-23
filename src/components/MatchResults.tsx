@@ -7,6 +7,7 @@
 import { useState } from "react";
 import { Check, Share2, Trophy } from "lucide-react";
 import { buildShareCard, copyCanvasToClipboard, downloadCanvas } from "../lib/shareCard";
+import { avatarInitials, ordinal } from "../lib/format";
 
 type StandingRow = {
   id: string;
@@ -17,27 +18,6 @@ type StandingRow = {
   isYou: boolean;
   isAi: boolean;
 };
-
-function ordinal(n: number): string {
-  const abs = Math.abs(n);
-  const tens = abs % 100;
-  if (tens >= 11 && tens <= 13) return `${n}th`;
-  switch (abs % 10) {
-    case 1:
-      return `${n}st`;
-    case 2:
-      return `${n}nd`;
-    case 3:
-      return `${n}rd`;
-    default:
-      return `${n}th`;
-  }
-}
-
-function avatarInitials(name: string): string {
-  const letters = name.replace(/[^A-Za-z]/g, "");
-  return letters.slice(0, 2).toUpperCase() || "??";
-}
 
 export function MatchResults(props: {
   placement: number;

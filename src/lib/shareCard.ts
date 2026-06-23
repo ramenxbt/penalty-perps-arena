@@ -111,6 +111,73 @@ export function buildShareCard(data: ShareCardData): HTMLCanvasElement {
   return canvas;
 }
 
+export type ProfileCardData = {
+  handle: string;
+  rank: number;
+  fieldSize: number;
+  seasonPoints: number;
+  tier: string;
+};
+
+/** A shareable identity card: handle, rank, tier, and season points. */
+export function buildProfileCard(data: ProfileCardData): HTMLCanvasElement {
+  const canvas = document.createElement("canvas");
+  canvas.width = W;
+  canvas.height = H;
+  const ctx = canvas.getContext("2d");
+  if (!ctx) return canvas;
+
+  const grad = ctx.createLinearGradient(0, 0, 0, H);
+  grad.addColorStop(0, COL.bg1);
+  grad.addColorStop(1, COL.bg0);
+  ctx.fillStyle = grad;
+  ctx.fillRect(0, 0, W, H);
+
+  const glow = ctx.createRadialGradient(W / 2, 90, 40, W / 2, 90, 520);
+  glow.addColorStop(0, "rgba(255,197,61,0.18)");
+  glow.addColorStop(1, "rgba(255,197,61,0)");
+  ctx.fillStyle = glow;
+  ctx.fillRect(0, 0, W, H);
+
+  ctx.strokeStyle = "rgba(255,197,61,0.55)";
+  ctx.lineWidth = 2;
+  roundRect(ctx, 24, 24, W - 48, H - 48, 28);
+  ctx.stroke();
+
+  ctx.textBaseline = "alphabetic";
+  ctx.fillStyle = COL.gold;
+  ctx.font = "700 30px 'Trebuchet MS', 'Segoe UI', system-ui, sans-serif";
+  ctx.fillText("PENALTY PERPS ARENA", 80, 120);
+
+  ctx.fillStyle = COL.muted;
+  ctx.font = "600 30px 'Trebuchet MS', 'Segoe UI', system-ui, sans-serif";
+  ctx.fillText(`${data.tier} TIER`, 80, 188);
+
+  ctx.fillStyle = COL.text;
+  ctx.font = "800 96px 'Trebuchet MS', 'Segoe UI', system-ui, sans-serif";
+  ctx.fillText(data.handle.slice(0, 16), 76, 300);
+
+  const stat = (label: string, value: string, x: number, accent = COL.text) => {
+    ctx.fillStyle = COL.muted;
+    ctx.font = "600 26px 'Trebuchet MS', 'Segoe UI', system-ui, sans-serif";
+    ctx.fillText(label, x, 392);
+    ctx.fillStyle = accent;
+    ctx.font = "800 64px 'Trebuchet MS', 'Segoe UI', system-ui, sans-serif";
+    ctx.fillText(value, x, 460);
+  };
+  ctx.fillStyle = COL.line;
+  ctx.fillRect(80, 356, W - 160, 2);
+  stat("RANK", `#${data.rank}`, 80, COL.gold);
+  stat("OF", String(data.fieldSize), 360, COL.text);
+  stat("SEASON POINTS", data.seasonPoints.toLocaleString(), 620, COL.green);
+
+  ctx.fillStyle = COL.muted;
+  ctx.font = "600 26px 'Trebuchet MS', 'Segoe UI', system-ui, sans-serif";
+  ctx.fillText("Trade the chart. Profit earns your shots.", 80, H - 70);
+
+  return canvas;
+}
+
 /** Trigger a download of the canvas as a PNG. */
 export function downloadCanvas(canvas: HTMLCanvasElement, filename: string) {
   const url = canvas.toDataURL("image/png");
