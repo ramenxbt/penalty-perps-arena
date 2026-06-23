@@ -79,6 +79,10 @@ export class Arena {
   private shockwaveStrength = 0;
   private youLane: Lane | null = null;
 
+  // Goal celebration: sweeping searchlight beams that fan over the pitch for a beat.
+  private beams: { pivot: THREE.Group; mat: THREE.MeshBasicMaterial; baseTilt: number; phase: number }[] = [];
+  private celebrateStrength = 0;
+
   // Net ripple: a decaying impulse that bulges + lights the netting when a goal lands.
   private backNet: THREE.LineSegments | null = null;
   private netMat: THREE.LineBasicMaterial | null = null;
@@ -181,6 +185,30 @@ export class Arena {
       }),
     );
     scene.add(this.shockwave);
+
+    // Sweeping celebration searchlights: open additive cones hung high that fan on a goal.
+    if (quality.glow) {
+      const beamGeo = new THREE.ConeGeometry(2.4, 17, 18, 1, true);
+      const beamColors = [0xffc53d, 0x2fd07a, 0x65d8ff];
+      for (let i = 0; i < 3; i += 1) {
+        const pivot = new THREE.Group();
+        pivot.position.set((i - 1) * 5, 15.5, GOAL_Z + 2.5);
+        const mat = new THREE.MeshBasicMaterial({
+          color: beamColors[i],
+          transparent: true,
+          opacity: 0,
+          blending: THREE.AdditiveBlending,
+          depthWrite: false,
+          toneMapped: false,
+          side: THREE.DoubleSide,
+        });
+        const cone = new THREE.Mesh(beamGeo, mat);
+        cone.position.y = -8.5; // apex at the pivot, beam fans down to the pitch
+        pivot.add(cone);
+        scene.add(pivot);
+        this.beams.push({ pivot, mat, baseTilt: (i - 1) * 0.28, phase: i * 2.1 });
+      }
+    }
   }
 
   update(dt: number, elapsedSec: number, state: ArenaState, rig: CameraRig) {
@@ -328,6 +356,12 @@ export class Arena {
             rig.punch(1); // push the camera in on your goal
             this.shockwaveStrength = 1; // expanding ring at the net
             this.shockwave?.position.set(placeX, 1.45, GOAL_Z - 0.4);
+            this.celebrateStrength = 1; // fire the sweeping searchlights
+            // Corner fountains erupt from the goalposts for a fuller celebration.
+            this.tmp.set(-this.goalMouth, 1.3, GOAL_Z - 0.3);
+            this.particles.burst(this.tmp, 12, GOAL_COLORS, 1.1);
+            this.tmp.set(this.goalMouth, 1.3, GOAL_Z - 0.3);
+            this.particles.burst(this.tmp, 12, GOAL_COLORS, 1.1);
           } else {
             this.tmp.set(placeX * 0.5, 1.1, KEEPER_Z);
             this.particles.burst(this.tmp, 12, SAVE_COLORS, 0.5);
@@ -457,6 +491,20 @@ export class Arena {
       }
     }
 
+    // Celebration searchlights: fan across the pitch while the celebration is hot, then fade.
+    if (this.beams.length) {
+      if (this.celebrateStrength > 0) {
+        this.celebrateStrength = Math.max(0, this.celebrateStrength - dt * 0.6); // ~1.7s
+        for (const b of this.beams) {
+          b.pivot.rotation.z = b.baseTilt + Math.sin(elapsedSec * 1.8 + b.phase) * 0.5;
+          b.pivot.rotation.x = Math.sin(elapsedSec * 1.2 + b.phase) * 0.2;
+          b.mat.opacity = this.celebrateStrength * 0.22;
+        }
+      } else if (this.beams[0].mat.opacity !== 0) {
+        for (const b of this.beams) b.mat.opacity = 0;
+      }
+    }
+
     this.particles.update(dt);
   }
 
@@ -486,6 +534,8 @@ export class Arena {
     this.shockwaveStrength = 0;
     if (this.shockwave) (this.shockwave.material as THREE.MeshBasicMaterial).opacity = 0;
     for (const s of this.trail) (s.material as THREE.SpriteMaterial).opacity = 0;
+    this.celebrateStrength = 0;
+    for (const b of this.beams) b.mat.opacity = 0;
   }
 
   dispose() {
