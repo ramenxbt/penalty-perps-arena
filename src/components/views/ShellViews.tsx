@@ -208,7 +208,7 @@ export function HistoryView({ lastMatch }: { lastMatch: MatchResult | null }) {
               <div className="board-name">
                 <strong>Quick Cup</strong>
                 <span>
-                  of {lastMatch.fieldSize} - {lastMatch.bestRound.goals} goals best round
+                  of {lastMatch.fieldSize} · best round {lastMatch.bestRound.goals} goals
                 </span>
               </div>
               <span className="standing-goals">{lastMatch.totals.goals} G</span>

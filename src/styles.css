@@ -2522,6 +2522,19 @@ h2 {
   box-shadow:
     inset 0 1px 0 var(--glass-highlight),
     0 22px 48px -22px rgba(0, 0, 0, 0.95);
+  transform-origin: top right;
+  animation: accountpop 130ms ease;
+}
+
+@keyframes accountpop {
+  from {
+    opacity: 0;
+    transform: translateY(-6px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
 }
 
 .account-item {
@@ -2668,6 +2681,7 @@ h2 {
 /* --- full-stage shell views ------------------------------------------- */
 .view-panel {
   overflow-y: auto;
+  animation: tickerin 240ms ease;
 }
 
 .view-head {
@@ -2677,11 +2691,14 @@ h2 {
   gap: 14px;
 }
 
+/* Pixel title, sized to match the other panel titles (lobby/results), not a display headline. */
 .view-title {
   margin: 4px 0 0;
-  font-family: "Archivo Black", Inter, sans-serif;
-  font-size: clamp(1.8rem, 3.4vw, 2.8rem);
-  line-height: 0.95;
+  font-family: "Silkscreen", monospace;
+  font-weight: 700;
+  font-size: clamp(1.1rem, 2.5vw, 1.5rem);
+  letter-spacing: 0.01em;
+  line-height: 1.25;
 }
 
 .games-grid {
@@ -2698,6 +2715,13 @@ h2 {
   border: 1px solid rgba(255, 197, 61, 0.18);
   border-radius: var(--radius);
   background: #101113;
+  transition: transform 150ms ease, border-color 150ms ease, box-shadow 150ms ease;
+}
+
+.game-card:not(.locked):hover {
+  transform: translateY(-2px);
+  border-color: rgba(255, 197, 61, 0.45);
+  box-shadow: 0 16px 34px -24px rgba(255, 197, 61, 0.5);
 }
 
 .game-card.locked {
@@ -2728,8 +2752,10 @@ h2 {
 
 .game-card h3 {
   margin: 0;
-  font-family: "Archivo Black", Inter, sans-serif;
-  font-size: 1.25rem;
+  font-family: Inter, system-ui, sans-serif;
+  font-weight: 800;
+  font-size: 1.1rem;
+  letter-spacing: 0.01em;
 }
 
 .game-card p {
