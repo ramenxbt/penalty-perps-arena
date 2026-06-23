@@ -21,7 +21,7 @@ export type ScoreboardData = {
 const COL = {
   bg: "#0b0f0d",
   bgPanel: "#10161300",
-  green: "#b7ff4a",
+  green: "#ffc53d",
   cyan: "#6dd6ff",
   amber: "#f6b73c",
   white: "#eaf2ff",

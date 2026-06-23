@@ -9,7 +9,7 @@ import * as THREE from "three";
 import { QualitySettings } from "./quality";
 import { createPitchMaterial, createSkyMaterial } from "./materials";
 
-const SEAT_PALETTE = [0x5b9dff, 0x65d8ff, 0xf6b73c, 0xeaf2ff, 0xff5370, 0x8ea7ff];
+const SEAT_PALETTE = [0xffc53d, 0x65d8ff, 0xf6b73c, 0xeaf2ff, 0xff5370, 0x8ea7ff];
 
 export class Environment {
   private disposables: Array<{ dispose: () => void }> = [];
@@ -56,7 +56,7 @@ export class Environment {
     box(7.5, 3, -10.4); // six-yard box
 
     const arc = this.track(new THREE.RingGeometry(0.32, 0.4, 36));
-    const spot = new THREE.Mesh(arc, new THREE.MeshBasicMaterial({ color: 0x5b9dff, transparent: true, opacity: 0.55 }));
+    const spot = new THREE.Mesh(arc, new THREE.MeshBasicMaterial({ color: 0xffc53d, transparent: true, opacity: 0.55 }));
     spot.rotation.x = -Math.PI / 2;
     spot.position.set(0, 0.04, 3.9);
     scene.add(spot);

@@ -18,8 +18,8 @@ type Particle = {
 };
 
 const GRAVITY = -9.5;
-export const GOAL_COLORS = [0x5b9dff, 0x65d8ff, 0xf6b73c, 0xffffff, 0xbcd6ff];
-export const SAVE_COLORS = [0xff5370, 0x9aa3ad, 0xd8dde4];
+export const GOAL_COLORS = [0x2fd07a, 0xffc53d, 0xffffff, 0x5fe39c, 0xffd970];
+export const SAVE_COLORS = [0xff5247, 0x9aa3ad, 0xd8dde4];
 
 export class ParticlePool {
   readonly mesh: THREE.InstancedMesh;

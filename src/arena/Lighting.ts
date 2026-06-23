@@ -25,7 +25,7 @@ export class Lighting {
       key.shadow.camera.far = 40;
     }
 
-    const fill = new THREE.PointLight(0x5b9dff, 2.0, 34);
+    const fill = new THREE.PointLight(0xffc53d, 2.0, 34);
     fill.position.set(6, 5, 7);
 
     const rim = new THREE.PointLight(0x65d8ff, 2.4, 34);
