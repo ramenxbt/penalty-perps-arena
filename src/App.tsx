@@ -8,9 +8,6 @@ import {
   Goal,
   Lock,
   Trophy,
-  UserRound,
-  Volume2,
-  VolumeX,
   Wallet,
   Zap,
 } from "lucide-react";
@@ -23,7 +20,7 @@ import { PnlGauge } from "./components/PnlGauge";
 import { RoundBreak } from "./components/RoundBreak";
 import { TradeTicker } from "./components/TradeTicker";
 import { WelcomeScreen } from "./components/WelcomeScreen";
-import { useAuth, truncateAddress } from "./auth/AuthContext";
+import { useAuth } from "./auth/AuthContext";
 import { configurationError, env, features } from "./config/env";
 import { formatMarketPrice, getMarketAsset } from "./game/markets";
 import { Direction } from "./game/types";
@@ -31,6 +28,24 @@ import { useArenaAudio } from "./hooks/useArenaAudio";
 import { useSession } from "./hooks/useSession";
 import { RULES } from "./game/engine";
 import { ProfilePanel } from "./components/profile/ProfilePanel";
+import { AccountMenu } from "./components/account/AccountMenu";
+import {
+  HistoryView,
+  HowToView,
+  OpenGamesView,
+  SeasonView,
+  StandingsView,
+} from "./components/views/ShellViews";
+
+type ShellView = "play" | "games" | "standings" | "season" | "history" | "profile" | "howto";
+
+const RAIL_LINKS: { view: ShellView; label: string; icon: typeof Zap }[] = [
+  { view: "play", label: "Play", icon: Zap },
+  { view: "games", label: "Open Games", icon: Goal },
+  { view: "standings", label: "Standings", icon: Trophy },
+  { view: "season", label: "Season", icon: Flame },
+  { view: "history", label: "History", icon: Activity },
+];
 
 const ArenaScene = lazy(() => import("./ArenaScene").then((module) => ({ default: module.ArenaScene })));
 
@@ -50,35 +65,6 @@ function feedLabel(status: "connecting" | "live" | "simulated") {
   return "SYNC";
 }
 
-function WalletButton() {
-  const auth = useAuth();
-  if (!auth.ready) {
-    return (
-      <button className="wallet-button" type="button" disabled aria-busy="true">
-        <Wallet size={17} />
-        Loading
-      </button>
-    );
-  }
-  if (auth.isAuthenticated && auth.user) {
-    const label = auth.user.walletAddress
-      ? truncateAddress(auth.user.walletAddress)
-      : auth.user.displayName;
-    return (
-      <button className="wallet-button active" type="button" onClick={auth.logout} title="Disconnect">
-        <Wallet size={17} />
-        {label}
-      </button>
-    );
-  }
-  return (
-    <button className="wallet-button" type="button" onClick={auth.login}>
-      <Wallet size={17} />
-      Connect
-    </button>
-  );
-}
-
 export function App() {
   if (configurationError) {
     return <ConfigurationErrorScreen message={configurationError} />;
@@ -87,7 +73,7 @@ export function App() {
   const game = useSession();
   const auth = useAuth();
   const audio = useArenaAudio(game.phase, game.outcome, game.shooters);
-  const [profileOpen, setProfileOpen] = useState(false);
+  const [view, setView] = useState<ShellView>("play");
 
   // Bright blip when a live trade crosses into a higher shot tier.
   const prevShotsRef = useRef(0);
@@ -119,7 +105,8 @@ export function App() {
   const inMatch = game.sessionPhase === "in_match";
   const inBreak = game.sessionPhase === "round_break";
   const inResults = game.sessionPhase === "match_results";
-  const showArena = inCountdown || inMatch || inBreak;
+  const playView = view === "play";
+  const showArena = playView && (inCountdown || inMatch || inBreak);
 
   const idle = game.phase === "idle" || game.phase === "settled";
   const opening = game.phase === "opening";
@@ -204,20 +191,33 @@ export function App() {
         </div>
 
         <nav className="rail-nav" aria-label="Primary">
-          <a className="active" href="#arena" aria-label="Arena">
-            <Zap size={20} />
-            <span>Arena</span>
-          </a>
-          <a href="#standings" aria-label="Standings">
-            <Trophy size={20} />
-            <span>Standings</span>
-          </a>
+          {RAIL_LINKS.map((link) => {
+            const Icon = link.icon;
+            const active = view === link.view || (link.view === "play" && view === "profile");
+            return (
+              <button
+                key={link.view}
+                type="button"
+                className={active ? "active" : undefined}
+                aria-label={link.label}
+                aria-current={active ? "page" : undefined}
+                onClick={() => setView(link.view)}
+              >
+                <Icon size={20} />
+                <span>{link.label}</span>
+              </button>
+            );
+          })}
         </nav>
 
-        <div className="rail-card">
-          <span className="rail-card-label">How it works</span>
-          <strong>Trade the chart. Profit earns your shots.</strong>
-          <small>Win the trade to earn open shots. Lose it and the keeper wins. AI squads are simulated and not reward eligible.</small>
+        <div className="rail-footer">
+          <button
+            type="button"
+            className={view === "howto" ? "rail-howto active" : "rail-howto"}
+            onClick={() => setView("howto")}
+          >
+            How to play
+          </button>
         </div>
       </section>
 
@@ -232,31 +232,14 @@ export function App() {
               <Coins size={16} />
               Paper
             </span>
-            {features.tokenGate && game.isHolder && (
-              <span className="token-chip active">
-                <BadgeCheck size={16} />
-                {env.tokenSymbol} holder
-              </span>
-            )}
-            <button
-              className={audio.enabled ? "sound-button active" : "sound-button"}
-              type="button"
-              onClick={() => audio.setEnabled(!audio.enabled)}
-              aria-label={audio.enabled ? "Mute match audio" : "Unmute match audio"}
-              title={audio.enabled ? "Mute match audio" : "Unmute match audio"}
-            >
-              {audio.enabled ? <Volume2 size={17} /> : <VolumeX size={17} />}
-            </button>
-            <button
-              className={profileOpen ? "sound-button active" : "sound-button"}
-              type="button"
-              onClick={() => setProfileOpen((open) => !open)}
-              aria-label="Your profile"
-              title="Your profile"
-            >
-              <UserRound size={17} />
-            </button>
-            <WalletButton />
+            <AccountMenu
+              auth={auth}
+              isHolder={features.tokenGate ? game.isHolder : null}
+              tokenSymbol={env.tokenSymbol}
+              soundOn={audio.enabled}
+              onToggleSound={(next) => audio.setEnabled(next)}
+              onViewProfile={() => setView("profile")}
+            />
           </div>
         </header>
 
@@ -267,7 +250,7 @@ export function App() {
           </div>
         )}
 
-        {profileOpen ? (
+        {view === "profile" ? (
           <ProfilePanel
             playerId={auth.user?.id ?? "me"}
             handle={auth.user?.displayName ?? "@you"}
@@ -281,8 +264,32 @@ export function App() {
             roundsLeft={game.roundsLeft}
             dailyCap={RULES.dailyRounds}
             lastMatch={game.matchResult}
-            onBack={() => setProfileOpen(false)}
+            onBack={() => setView("play")}
           />
+        ) : view === "games" ? (
+          <OpenGamesView
+            roundsMax={game.matchRounds}
+            roundsLeft={game.roundsLeft}
+            outOfRounds={game.outOfRounds}
+            onPlay={() => {
+              setView("play");
+              if (inLobby) game.startMatch();
+              else game.enterLobby();
+            }}
+          />
+        ) : view === "standings" ? (
+          <StandingsView rows={game.rows} />
+        ) : view === "season" ? (
+          <SeasonView
+            cupName="Meridian Cup / Day 12"
+            rank={game.seed.rank}
+            fieldSize={Math.max(game.rows.length, game.seed.rank)}
+            seasonPoints={game.score}
+          />
+        ) : view === "history" ? (
+          <HistoryView lastMatch={game.matchResult} />
+        ) : view === "howto" ? (
+          <HowToView />
         ) : inLobby ? (
           <LobbyPanel
             field={game.lobbyField.map((p) => ({
