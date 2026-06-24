@@ -360,31 +360,35 @@ export class Environment {
     this.heads = this.track(heads);
   }
 
-  /** Four corner floodlight pylons: a dark mast, a bright lamp bank, and an additive bloom. */
+  /** Four corner floodlight pylons: a tall slim mast, a lamp bank, and an additive bloom. Kept
+   * tall + thin so the banks clear the roofs and frame the bowl corners without crowding. */
   private addFloodlights(scene: THREE.Scene) {
-    const poleGeo = this.track(new THREE.CylinderGeometry(0.22, 0.34, 16, 8));
+    const MAST_H = 26;
+    const poleGeo = this.track(new THREE.CylinderGeometry(0.18, 0.32, MAST_H, 8));
     const poleMat = this.track(new THREE.MeshStandardMaterial({ color: 0x20262b, roughness: 0.6, metalness: 0.7 }));
-    const bankGeo = this.track(new THREE.BoxGeometry(2.6, 1.3, 0.3));
+    const bankGeo = this.track(new THREE.BoxGeometry(3, 1.5, 0.32));
     const bankMat = this.track(new THREE.MeshBasicMaterial({ color: 0xfdf6e3, toneMapped: false }));
-    // Outside the bowl corners so the masts never stab through the stands.
+    // Just outside the four bowl corners. Back pair (behind the goal) rises above the end-stand
+    // roof; front pair sits beyond the sideline fronts, near the frame edge.
     const corners: [number, number][] = [
-      [-26, -22],
-      [26, -22],
-      [-26, 8],
-      [26, 8],
+      [-23, -24],
+      [23, -24],
+      [-22, 8.5],
+      [22, 8.5],
     ];
+    const bankY = MAST_H - 0.5;
     for (const [x, z] of corners) {
       const pole = new THREE.Mesh(poleGeo, poleMat);
-      pole.position.set(x, 8, z);
+      pole.position.set(x, MAST_H / 2, z);
       scene.add(pole);
 
       const bank = new THREE.Mesh(bankGeo, bankMat);
-      bank.position.set(x, 16, z);
+      bank.position.set(x, bankY, z);
       bank.lookAt(0, 4, -4); // aim the lamp bank at the pitch
       scene.add(bank);
 
-      const glow = createGlowSprite(0xfff4d6, 5.2);
-      glow.position.set(x, 16, z);
+      const glow = createGlowSprite(0xfff4d6, 5.6);
+      glow.position.set(x, bankY, z);
       (glow.material as THREE.SpriteMaterial).opacity = 0.85;
       scene.add(glow);
     }
