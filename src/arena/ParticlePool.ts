@@ -14,7 +14,8 @@ type Particle = {
   spin: number;
   life: number;
   maxLife: number;
-  scale: number;
+  sx: number; // non-uniform scale: ribbons are thin + tall, squares are sx == sy
+  sy: number;
   grav: number; // gravity scale: 1 for confetti, near 0 for floaty embers
 };
 
@@ -43,7 +44,8 @@ export class ParticlePool {
       spin: 0,
       life: 0,
       maxLife: 1,
-      scale: 1,
+      sx: 1,
+      sy: 1,
       grav: 1,
     }));
 
@@ -77,7 +79,10 @@ export class ParticlePool {
       particle.spin = (Math.random() - 0.5) * 12;
       particle.maxLife = 0.9 + Math.random() * 0.7;
       particle.life = particle.maxLife;
-      particle.scale = 0.7 + Math.random() * 0.8;
+      const ribbon = Math.random() < 0.42; // ~40% are streamer ribbons, the rest squares
+      const s = 0.7 + Math.random() * 0.8;
+      particle.sx = ribbon ? s * 0.34 : s;
+      particle.sy = ribbon ? s * 2.4 : s;
       const index = this.particles.indexOf(particle);
       this.color.set(palette[Math.floor(Math.random() * palette.length)]);
       this.mesh.setColorAt(index, this.color);
@@ -98,13 +103,47 @@ export class ParticlePool {
       particle.spin = (Math.random() - 0.5) * 3;
       particle.maxLife = 1.6 + Math.random() * 1.0;
       particle.life = particle.maxLife;
-      particle.scale = 0.32 + Math.random() * 0.3;
+      particle.sx = 0.32 + Math.random() * 0.3;
+      particle.sy = particle.sx;
       const index = this.particles.indexOf(particle);
       this.color.set(hex);
       this.mesh.setColorAt(index, this.color);
       if (this.mesh.instanceColor) this.mesh.instanceColor.needsUpdate = true;
       return;
     }
+  }
+
+  /**
+   * A confetti drop: ribbons + squares spawned across a horizontal band at `center`, drifting
+   * down under gravity. Used over the goal mouth on a score, on top of the upward fountains.
+   */
+  rain(center: THREE.Vector3, width: number, count: number, palette: number[] = GOAL_COLORS) {
+    let spawned = 0;
+    for (const particle of this.particles) {
+      if (spawned >= count) break;
+      if (particle.active) continue;
+      particle.active = true;
+      particle.grav = 1;
+      particle.pos.set(
+        center.x + (Math.random() - 0.5) * width,
+        center.y + Math.random() * 1.5,
+        center.z + (Math.random() - 0.5) * 1.2,
+      );
+      particle.vel.set((Math.random() - 0.5) * 1.6, -0.4 - Math.random() * 1.4, (Math.random() - 0.5) * 1.0);
+      particle.rot = Math.random() * Math.PI;
+      particle.spin = (Math.random() - 0.5) * 10;
+      particle.maxLife = 1.7 + Math.random() * 1.1; // long enough to flutter down through frame
+      particle.life = particle.maxLife;
+      const ribbon = Math.random() < 0.5;
+      const s = 0.7 + Math.random() * 0.8;
+      particle.sx = ribbon ? s * 0.34 : s;
+      particle.sy = ribbon ? s * 2.4 : s;
+      const index = this.particles.indexOf(particle);
+      this.color.set(palette[Math.floor(Math.random() * palette.length)]);
+      this.mesh.setColorAt(index, this.color);
+      spawned += 1;
+    }
+    if (this.mesh.instanceColor) this.mesh.instanceColor.needsUpdate = true;
   }
 
   update(dt: number) {
@@ -128,7 +167,7 @@ export class ParticlePool {
       const fade = Math.min(1, particle.life / (particle.maxLife * 0.4));
       this.dummy.position.copy(particle.pos);
       this.dummy.rotation.set(particle.rot, particle.rot * 0.7, particle.rot * 1.3);
-      this.dummy.scale.setScalar(particle.scale * fade);
+      this.dummy.scale.set(particle.sx * fade, particle.sy * fade, particle.sx * fade);
       this.dummy.updateMatrix();
       this.mesh.setMatrixAt(index, this.dummy.matrix);
     });

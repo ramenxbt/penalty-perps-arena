@@ -362,6 +362,9 @@ export class Arena {
             this.particles.burst(this.tmp, 12, GOAL_COLORS, 1.1);
             this.tmp.set(this.goalMouth, 1.3, GOAL_Z - 0.3);
             this.particles.burst(this.tmp, 12, GOAL_COLORS, 1.1);
+            // Confetti drop fluttering down over the goal mouth, on top of the fountains.
+            this.tmp.set(0, 5.6, GOAL_Z + 0.2);
+            this.particles.rain(this.tmp, this.goalMouth * 2.4, 36, GOAL_COLORS);
           } else {
             this.tmp.set(placeX * 0.5, 1.1, KEEPER_Z);
             this.particles.burst(this.tmp, 12, SAVE_COLORS, 0.5);
