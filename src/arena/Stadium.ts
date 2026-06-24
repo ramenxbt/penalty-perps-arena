@@ -34,6 +34,7 @@ const ROT_Y = 0;
 export class Stadium {
   private root: THREE.Group | null = null;
   private disposed = false;
+  private tunerCleanup: (() => void) | null = null;
 
   constructor(scene: THREE.Scene, quality: QualitySettings) {
     if (quality.tier === "low") return; // skip the 2.8MB asset on weak devices
@@ -75,6 +76,12 @@ export class Stadium {
         root.rotation.y = ROT_Y;
         scene.add(root);
         this.root = root;
+
+        // Live placement tuner: load with ?tune in the URL, drag the stadium into place
+        // with the keyboard, and read the logged numbers to bake into the constants above.
+        if (typeof location !== "undefined" && location.search.includes("tune")) {
+          this.attachTuner(root, scale);
+        }
       },
       undefined,
       (err) => {
@@ -84,8 +91,44 @@ export class Stadium {
     );
   }
 
+  /** Dev-only keyboard tuner so the placement can be dialed by eye (gated behind ?tune). */
+  private attachTuner(root: THREE.Group, startScale: number) {
+    let scale = startScale;
+    const log = () =>
+      console.log(
+        `[stadium] scale=${scale.toFixed(3)} pos=(${root.position.x.toFixed(1)}, ${root.position.y.toFixed(2)}, ${root.position.z.toFixed(1)}) rotY=${root.rotation.y.toFixed(3)}`,
+      );
+    const onKey = (e: KeyboardEvent) => {
+      const step = e.shiftKey ? 5 : 1;
+      const sFactor = e.shiftKey ? 1.2 : 1.05;
+      switch (e.key) {
+        case "ArrowLeft": root.position.x -= step; break;
+        case "ArrowRight": root.position.x += step; break;
+        case "ArrowUp": root.position.z -= step; break;
+        case "ArrowDown": root.position.z += step; break;
+        case "w": root.position.y += step; break;
+        case "s": root.position.y -= step; break;
+        case "a": root.rotation.y -= 0.1; break;
+        case "d": root.rotation.y += 0.1; break;
+        case "=":
+        case "+": scale *= sFactor; root.scale.setScalar(scale); break;
+        case "-":
+        case "_": scale /= sFactor; root.scale.setScalar(scale); break;
+        default: return;
+      }
+      e.preventDefault();
+      log();
+    };
+    window.addEventListener("keydown", onKey);
+    this.tunerCleanup = () => window.removeEventListener("keydown", onKey);
+    console.log("[stadium] TUNER ON. Arrows = move X/Z, w/s = up/down, a/d = rotate, +/- = scale. Hold Shift for coarse steps.");
+    log();
+  }
+
   dispose() {
     this.disposed = true;
+    this.tunerCleanup?.();
+    this.tunerCleanup = null;
     const root = this.root;
     if (!root) return;
     root.traverse((obj) => {
