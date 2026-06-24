@@ -11,8 +11,8 @@ export type CameraFraming = "wide" | "volley";
 type Framing = { position: THREE.Vector3; target: THREE.Vector3; fov: number };
 
 const FRAMINGS: Record<CameraFraming, Framing> = {
-  wide: { position: new THREE.Vector3(0, 4.1, 12.2), target: new THREE.Vector3(0, 1.1, -2), fov: 44 },
-  volley: { position: new THREE.Vector3(0, 3.2, 9.4), target: new THREE.Vector3(0, 1.4, -4), fov: 40 },
+  wide: { position: new THREE.Vector3(0, 4.8, 12.8), target: new THREE.Vector3(0, 1.7, -2.5), fov: 48 },
+  volley: { position: new THREE.Vector3(0, 3.5, 9.7), target: new THREE.Vector3(0, 1.5, -4), fov: 42 },
 };
 
 export class CameraRig {
