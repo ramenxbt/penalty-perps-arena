@@ -4,8 +4,9 @@
  * the trade dock, the arena scene, or the round/results internals. Each view is fed only from
  * data already on `game` this session (no backend, no invented history).
  */
-import { Activity, BadgeCheck, Bot, Flame, Goal, Lock, Trophy, Zap } from "lucide-react";
+import { Activity, BadgeCheck, Bot, Flame, Goal, Lock, ShieldAlert, Trophy, Zap } from "lucide-react";
 import type { MatchResult } from "../../game/match";
+import { CONCEDE_WARNING_LINE, PROFIT_TO_SHOTS_LINE } from "../../game/engine";
 import { ordinal } from "../../lib/format";
 import { seasonTier, SEASON_TIERS } from "../../lib/season";
 
@@ -17,7 +18,38 @@ type BoardRow = {
   score: number;
   isAi: boolean;
   isHolder: boolean;
+  streak: number;
+  movement: number;
 };
+
+/**
+ * Right-aligned row chips driven by the ladder data already on each BoardRow:
+ * a Flame + streak chip (only once the streak is meaningful) and a movement
+ * indicator that uses a filled triangle glyph (never a nav arrow).
+ */
+export function BoardRowChips({ streak, movement }: { streak: number; movement: number }) {
+  const moveClass = movement > 0 ? "move-chip up" : movement < 0 ? "move-chip down" : "move-chip";
+  const glyph = movement > 0 ? "▲" : "▼";
+  const moveLabel = movement === 0 ? "0" : `${movement > 0 ? "+" : ""}${movement}`;
+  return (
+    <span className="board-chips">
+      {streak >= 3 && (
+        <span className="streak-chip" title={`${streak} round streak`}>
+          <Flame size={11} />
+          {streak}
+        </span>
+      )}
+      <span
+        className={moveClass}
+        title={movement === 0 ? "No movement" : `${moveLabel} since last cup`}
+        aria-label={movement === 0 ? "No movement" : `Moved ${moveLabel} places`}
+      >
+        {movement !== 0 && <span className="move-glyph" aria-hidden="true">{glyph}</span>}
+        {moveLabel}
+      </span>
+    </span>
+  );
+}
 
 function ViewHead({ eyebrow, title }: { eyebrow: string; title: string }) {
   return (
@@ -92,35 +124,46 @@ export function OpenGamesView(props: {
 }
 
 /** STANDINGS: full-stage season leaderboard using the existing board-row language. */
-export function StandingsView({ rows }: { rows: BoardRow[] }) {
+export function StandingsView({ rows, meId }: { rows: BoardRow[]; meId: string }) {
   return (
     <section className="results-panel view-panel">
       <ViewHead eyebrow="SEASON LADDER" title="Standings" />
       <div className="field-card">
         <div className="board-list">
-          {rows.map((row) => (
-            <div className={row.isAi ? "board-row ai-row" : "board-row"} key={row.id}>
-              <span className="rank">{row.rank}</span>
-              <span className="avatar">{row.avatar}</span>
-              <div className="board-name">
-                <strong>{row.name}</strong>
-                <span>
-                  {row.isAi ? (
-                    <>
-                      <Bot size={13} /> AI squad
-                    </>
-                  ) : row.isHolder ? (
-                    <>
-                      <BadgeCheck size={13} /> holder
-                    </>
-                  ) : (
-                    "player"
-                  )}
-                </span>
+          {rows.map((row) => {
+            const you = row.id === meId;
+            const className = you
+              ? "board-row you"
+              : row.isAi
+                ? "board-row ai-row"
+                : "board-row";
+            return (
+              <div className={className} key={row.id}>
+                <span className="rank">{row.rank}</span>
+                <span className="avatar">{row.avatar}</span>
+                <div className="board-name">
+                  <strong>{you ? "You" : row.name}</strong>
+                  <span>
+                    {you ? (
+                      "you"
+                    ) : row.isAi ? (
+                      <>
+                        <Bot size={13} /> AI squad
+                      </>
+                    ) : row.isHolder ? (
+                      <>
+                        <BadgeCheck size={13} /> holder
+                      </>
+                    ) : (
+                      "player"
+                    )}
+                  </span>
+                </div>
+                <BoardRowChips streak={row.streak} movement={row.movement} />
+                <span className="board-score">{row.score.toLocaleString()}</span>
               </div>
-              <span className="board-score">{row.score.toLocaleString()}</span>
-            </div>
-          ))}
+            );
+          })}
         </div>
       </div>
       <div className="disclosure-row">
@@ -234,7 +277,12 @@ export function HowToView() {
   const steps = [
     { icon: Goal, title: "Enter a cup", body: "Each cup is three rounds against an AI field. Pick Open Games to start." },
     { icon: Zap, title: "Trade the chart", body: "Open Long or Short at kickoff, ride the move, then close while you are up." },
-    { icon: Flame, title: "Profit earns shots", body: "A winning trade earns penalty shots. Lose it and the keeper wins the round." },
+    {
+      icon: Flame,
+      title: "Profit becomes shots",
+      body: `Your profit becomes penalty shots (${PROFIT_TO_SHOTS_LINE}). Bury them for goals, and goals become points and rank.`,
+    },
+    { icon: ShieldAlert, title: "Mind the downside", body: CONCEDE_WARNING_LINE },
     { icon: Trophy, title: "Climb the ladder", body: "Banked points feed your season standing. AI squads are not reward eligible." },
   ];
   return (

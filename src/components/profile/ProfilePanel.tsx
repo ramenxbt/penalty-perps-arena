@@ -12,6 +12,7 @@ import { truncateAddress } from "../../auth/AuthContext";
 import { ordinal } from "../../lib/format";
 import { seasonTier, SEASON_TIERS } from "../../lib/season";
 import { buildProfileCard, copyCanvasToClipboard, downloadCanvas } from "../../lib/shareCard";
+import { useToast } from "../Toast";
 
 const ProfileCharacter = lazy(() =>
   import("../../components/profile/ProfileCharacter").then((m) => ({ default: m.ProfileCharacter })),
@@ -51,6 +52,7 @@ export function ProfilePanel(props: ProfilePanelProps) {
   } = props;
 
   const [shared, setShared] = useState<"idle" | "copied" | "saved">("idle");
+  const toast = useToast();
   const tier = seasonTier(seasonPoints);
 
   const onShare = async () => {
@@ -58,6 +60,11 @@ export function ProfilePanel(props: ProfilePanelProps) {
     const copied = await copyCanvasToClipboard(canvas);
     if (!copied) downloadCanvas(canvas, "penalty-perps-profile.png");
     setShared(copied ? "copied" : "saved");
+    toast.push({
+      title: copied ? "Profile card copied" : "Profile card saved",
+      tone: "positive",
+      dedupeKey: "share",
+    });
     window.setTimeout(() => setShared("idle"), 2600);
   };
 

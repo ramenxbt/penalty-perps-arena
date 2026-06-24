@@ -8,6 +8,32 @@ import { useState } from "react";
 import { Check, Share2, Trophy } from "lucide-react";
 import { buildShareCard, copyCanvasToClipboard, downloadCanvas } from "../lib/shareCard";
 import { avatarInitials, ordinal } from "../lib/format";
+import { useCountUp } from "../hooks/useCountUp";
+import { useToast } from "./Toast";
+
+/** Lightweight CSS confetti carried over for a first-place finish. No imagery, reduced-motion safe. */
+function Confetti() {
+  const pieces = Array.from({ length: 18 });
+  const tones = ["var(--gold)", "var(--green)", "var(--cyan)"];
+  return (
+    <div className="confetti" aria-hidden="true">
+      {pieces.map((_, i) => (
+        <span
+          key={i}
+          className="confetti-piece"
+          style={
+            {
+              "--c-x": `${(i / pieces.length) * 100}%`,
+              "--c-delay": `${(i % 6) * 120}ms`,
+              "--c-dur": `${2200 + (i % 5) * 260}ms`,
+              "--c-color": tones[i % tones.length],
+            } as React.CSSProperties
+          }
+        />
+      ))}
+    </div>
+  );
+}
 
 type StandingRow = {
   id: string;
@@ -45,6 +71,7 @@ export function MatchResults(props: {
   } = props;
 
   const [shared, setShared] = useState<"idle" | "copied" | "saved">("idle");
+  const toast = useToast();
 
   const onShare = async () => {
     const canvas = buildShareCard({
@@ -57,6 +84,11 @@ export function MatchResults(props: {
     const copied = await copyCanvasToClipboard(canvas);
     if (!copied) downloadCanvas(canvas, "penalty-perps-result.png");
     setShared(copied ? "copied" : "saved");
+    toast.push({
+      title: copied ? "Result card copied" : "Result card saved",
+      tone: "positive",
+      dedupeKey: "share",
+    });
     window.setTimeout(() => setShared("idle"), 2600);
   };
 
@@ -74,8 +106,14 @@ export function MatchResults(props: {
         ? seasonDelta.rankDelta + " ranks"
         : "Holds";
 
+  // Ceremony count-ups: the headline stats tally in from zero after the placement beat.
+  const pointsCount = useCountUp(totals.points, 1000, 420, true);
+  const goalsCount = useCountUp(totals.goals, 900, 520, true);
+  const seasonPointsCount = useCountUp(seasonDelta.seasonPoints, 1000, 700, true);
+
   return (
-    <section className="results-panel">
+    <section className="results-panel is-ceremony">
+      {placement === 1 && <Confetti />}
       <div className="result-head">
         <span className="eyebrow">CUP COMPLETE</span>
       </div>
@@ -89,23 +127,23 @@ export function MatchResults(props: {
       <p className="result-sub">{summary}</p>
 
       <div className="result-stats">
-        <div className="stat-cell">
+        <div className="stat-cell" style={{ "--stat-i": 0 } as React.CSSProperties}>
           <span>POINTS</span>
-          <strong>{totals.points.toLocaleString()}</strong>
+          <strong>{pointsCount.toLocaleString()}</strong>
         </div>
-        <div className="stat-cell">
+        <div className="stat-cell" style={{ "--stat-i": 1 } as React.CSSProperties}>
           <span>GOALS</span>
-          <strong>{totals.goals}</strong>
+          <strong>{goalsCount}</strong>
         </div>
-        <div className="stat-cell">
+        <div className="stat-cell" style={{ "--stat-i": 2 } as React.CSSProperties}>
           <span>BEST RND</span>
           <strong>Round {bestRound.round}</strong>
           <small>{bestRound.goals} goals</small>
         </div>
-        <div className="stat-cell">
+        <div className="stat-cell" style={{ "--stat-i": 3 } as React.CSSProperties}>
           <span>SEASON</span>
           <strong className={seasonClass}>{seasonLabel}</strong>
-          <small>{seasonDelta.seasonPoints.toLocaleString()} pts</small>
+          <small>{seasonPointsCount.toLocaleString()} pts</small>
         </div>
       </div>
 

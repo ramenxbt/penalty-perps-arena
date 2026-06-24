@@ -52,6 +52,58 @@ export const ARENA_TETHER = 0.02;
 
 const TIER_EPSILON = 1e-9;
 
+/**
+ * Shared PnL display scale, derived from RULES.tiers so the dial, the power meter, and the
+ * shot thresholds all speak the same numbers (+4 / +15 / +40 today). Change a tier and every
+ * surface follows. Keeping this here means the UI never hardcodes a full-scale or a min/max.
+ */
+const POSITIVE_TIERS = RULES.tiers.filter((tier) => tier.minPnl > 0);
+const NEGATIVE_TIERS = RULES.tiers.filter((tier) => tier.minPnl < 0);
+
+/** Top earning threshold (the richest tier, +40 today). Fills the gauge and ends the meter. */
+export const TOP_TIER_PNL = Math.max(...POSITIVE_TIERS.map((tier) => tier.minPnl));
+/** Deepest loss the tiers care about (the shallow-loss shot floor, -15 today). */
+export const BOTTOM_TIER_PNL = NEGATIVE_TIERS.length
+  ? Math.min(...NEGATIVE_TIERS.map((tier) => tier.minPnl))
+  : 0;
+
+/** PnL % that fills the semicircular gauge. A tiny wiggle no longer pins it to full. */
+export const GAUGE_FULL_SCALE = TOP_TIER_PNL;
+
+/** Power-meter bounds: loss floor on the left, top earning tier on the right. */
+export const POWER_MIN = BOTTOM_TIER_PNL;
+export const POWER_MAX = TOP_TIER_PNL;
+
+/** Positive shot thresholds (ascending), for tick marks and next-tier copy. */
+export const SHOT_TIERS = [...POSITIVE_TIERS]
+  .map((tier) => ({ shots: tier.shots, minPnl: tier.minPnl }))
+  .sort((a, b) => a.minPnl - b.minPnl);
+
+/** Whether a small loss still earns one near-hopeless shot (the shallow-loss tier). */
+export const LOSS_EARNS_SHOT = NEGATIVE_TIERS.length > 0;
+
+/**
+ * One plain-language sentence teaching the core rule, built straight from RULES.tiers so the
+ * onboarding copy can never drift from the settlement math. Reads like "+4% = 1, +15% = 2,
+ * +40% = 3" using the live tier thresholds.
+ */
+export const PROFIT_TO_SHOTS_LINE = SHOT_TIERS.map(
+  (tier) => `+${tier.minPnl}% = ${tier.shots}`,
+).join(", ");
+
+/**
+ * The downside teaching line, derived from concededFor's thresholds. Names the loss that first
+ * lets the keeper score on you so the warning matches the math.
+ */
+const FIRST_CONCEDE_PNL = 10;
+export const CONCEDE_WARNING_LINE = `A big loss (past -${FIRST_CONCEDE_PNL}%) lets the keeper score on you and costs points.`;
+
+/** Position 0-1 of a PnL value on the power-meter scale. */
+export function powerRatioFor(pnlPct: number): number {
+  if (POWER_MAX === POWER_MIN) return 0;
+  return Math.max(0, Math.min(1, (pnlPct - POWER_MIN) / (POWER_MAX - POWER_MIN)));
+}
+
 export function createInitialMarket(
   seed: number = RULES.seedPrice,
   volatility = 0.72,

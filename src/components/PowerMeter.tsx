@@ -3,19 +3,34 @@
  * tiers into a visible, growing bar so the player can watch their reward climb and chase
  * the next threshold. The big shots number re-mounts on change (keyed) to pop on a
  * tier cross. This is the dopamine of the trade: see what you would bank right now.
+ *
+ * Every number here is read from RULES.tiers via the shared scale (powerRatioFor, SHOT_TIERS,
+ * LOSS_EARNS_SHOT), so the meter, the dial, and the shot thresholds speak one +4 / +15 / +40
+ * scale and the foot copy can never drift from the actual rules.
  */
 
-import { RULES } from "../game/engine";
+import { LOSS_EARNS_SHOT, SHOT_TIERS, powerRatioFor } from "../game/engine";
 
-// Same mapping the hook uses for powerRatio, so ticks line up with the fill.
-const POWER_MIN = -20;
-const POWER_MAX = 55;
-const toPct = (pnl: number) => ((pnl - POWER_MIN) / (POWER_MAX - POWER_MIN)) * 100;
+// Threshold markers at each positive shot tier (1, 2, 3 shots), positioned on the shared scale.
+const THRESHOLDS = SHOT_TIERS.map((tier) => ({ shots: tier.shots, left: powerRatioFor(tier.minPnl) * 100 }));
 
-// Threshold markers at each positive shot tier (1, 2, 3 shots).
-const THRESHOLDS = RULES.tiers
-  .filter((tier) => tier.minPnl >= 0)
-  .map((tier) => ({ shots: tier.shots, left: toPct(tier.minPnl) }));
+const ordinal = (n: number): string => {
+  if (n === 1) return "first";
+  if (n === 2) return "2nd";
+  if (n === 3) return "3rd";
+  return `${n}th`;
+};
+
+/** Accurate next-tier guidance, sourced from RULES.tiers via SHOT_TIERS. */
+function footCopy(shots: number, openness: number): string {
+  if (shots > 0) return `Net ${Math.round(openness * 100)}% open`;
+  const next = SHOT_TIERS[0];
+  if (next) {
+    const tail = LOSS_EARNS_SHOT ? ". A small loss still earns one long shot." : "";
+    return `Reach +${next.minPnl}% for your ${ordinal(next.shots)} shot${tail}`;
+  }
+  return LOSS_EARNS_SHOT ? "A small loss still earns one long shot." : "Get into profit to earn a shot";
+}
 
 export function PowerMeter({
   shots,
@@ -47,9 +62,7 @@ export function PowerMeter({
           />
         ))}
       </div>
-      <div className="power-foot">
-        {shots > 0 ? `Net ${Math.round(openness * 100)}% open` : "Get green to earn a shot"}
-      </div>
+      <div className="power-foot">{footCopy(shots, openness)}</div>
     </div>
   );
 }

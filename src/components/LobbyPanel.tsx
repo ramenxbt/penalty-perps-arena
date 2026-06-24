@@ -4,6 +4,7 @@
  * Enter arena CTA before a Penalty Perps match begins.
  */
 import { BadgeCheck, Bot, Goal, Lock } from "lucide-react";
+import { CONCEDE_WARNING_LINE, PROFIT_TO_SHOTS_LINE } from "../game/engine";
 
 type LobbyField = {
   id: string;
@@ -37,7 +38,13 @@ export function LobbyPanel(props: {
   } = props;
 
   const roundsLabel =
-    roundsLeft === 1 ? "Last round today" : `${roundsLeft} rounds left today`;
+    roundsLeft <= 0
+      ? "No rounds left today"
+      : roundsLeft === 1
+        ? "Last round today"
+        : roundsLeft <= roundsMax
+          ? `${roundsLeft} of ${roundsMax} rounds left`
+          : `${roundsLeft} rounds left today`;
 
   const ctaLabel = outOfRounds
     ? "Out of rounds today"
@@ -98,6 +105,11 @@ export function LobbyPanel(props: {
       </div>
 
       <div className="lobby-facts">
+        <div className="fact-cell rule-cell">
+          <span>THE RULE</span>
+          <strong>Profit becomes shots ({PROFIT_TO_SHOTS_LINE})</strong>
+          <small>Bury them for goals. Goals become points and rank. {CONCEDE_WARNING_LINE}</small>
+        </div>
         <div className="fact-cell">
           <span>FORMAT</span>
           <strong>Best points over {roundsMax}</strong>

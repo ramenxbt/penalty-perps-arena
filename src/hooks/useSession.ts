@@ -10,6 +10,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { RULES } from "../game/engine";
 import {
   buildField,
+  buildLadder,
   MatchParticipant,
   MatchResult,
   matchSummary,
@@ -20,7 +21,7 @@ import {
 import { Direction } from "../game/types";
 import { useGameSimulation } from "./useGameSimulation";
 
-const ROUND_BREAK_AUTO_MS = 9000;
+const ROUND_BREAK_AUTO_MS = 5000;
 const MATCH_ROUNDS = RULES.matchRounds;
 
 export function useSession() {
@@ -51,8 +52,26 @@ export function useSession() {
     return { id: meShooter?.id ?? "me", name: meShooter?.name ?? "@you" };
   }, [game.shooters]);
 
-  const yourRow = game.rows.find((r) => r.id === you.id);
-  const seedRank = yourRow?.rank ?? game.rows.length + 1;
+  // The single ranked season ladder. Guarantees the player's row is present, sorts by
+  // score, and reassigns ranks so every surface (right-stack widget, Standings, Season,
+  // profile) reads one derived rank instead of a seed row's frozen rank.
+  const ladder = useMemo(
+    () =>
+      buildLadder(game.rows, {
+        id: you.id,
+        name: you.name,
+        avatar: "YO",
+        score: game.score,
+        streak: game.streak,
+        isHolder: game.isHolder,
+        playedToday: RULES.dailyRounds - game.roundsLeft,
+      }),
+    [game.rows, game.score, game.streak, game.isHolder, game.roundsLeft, you.id, you.name],
+  );
+
+  const yourRow = ladder.find((r) => r.id === you.id);
+  const seasonRank = yourRow?.rank ?? ladder.length;
+  const fieldSize = ladder.length;
 
   // Local mode can always run another cup; connected mode honors the server daily cap.
   const outOfRounds = game.mode === "connected" && game.roundsLeft <= 0;
@@ -63,10 +82,10 @@ export function useSession() {
     setBestRound({ round: 0, goals: 0 });
     setMatchResult(null);
     talliedRef.current = -1;
-    setRankBefore(yourRow?.rank ?? game.rows.length + 1);
+    setRankBefore(seasonRank);
     game.resetRound();
     setSessionPhase("countdown");
-  }, [game, you.id, you.name, yourRow?.rank]);
+  }, [game, you.id, you.name, seasonRank]);
 
   const startMatch = useCallback(() => {
     if (outOfRounds) return;
@@ -78,7 +97,16 @@ export function useSession() {
     const mine = ranked.find((p) => p.isYou);
     const placement = mine?.standing ?? ranked.length;
     const leader = ranked[0]?.name ?? "The field";
-    const rankAfter = game.rows.find((r) => r.id === you.id)?.rank ?? rankBefore;
+    // Fold the cup into persistent progression. In local mode this also nudges a couple
+    // of rival rows so the season ladder visibly reshuffles around the player's moved row.
+    game.recordCup({
+      placement,
+      fieldSize: ranked.length,
+      points: mine?.matchPoints ?? 0,
+      goals: mine?.matchGoals ?? 0,
+      honorIds: placement === 1 ? ["cup_winner"] : [],
+    });
+    const rankAfter = seasonRank;
     setMatchResult({
       placement,
       fieldSize: ranked.length,
@@ -90,7 +118,7 @@ export function useSession() {
     setParticipants(ranked);
     game.resetRound(); // clear the settled round so results does not show stale trade state
     setSessionPhase("match_results");
-  }, [participants, game, you.id, rankBefore, bestRound]);
+  }, [participants, game, rankBefore, bestRound, seasonRank]);
 
   const advanceRound = useCallback(() => {
     if (roundIndex + 1 >= MATCH_ROUNDS) {
@@ -223,7 +251,12 @@ export function useSession() {
     participants: standings,
     lobbyField,
     matchResult,
-    seed: { rank: seedRank, points: game.score },
+    // The single derived season ladder + the player's place on it.
+    ladder,
+    meId: you.id,
+    seasonRank,
+    fieldSize,
+    seed: { rank: seasonRank, points: game.score },
     outOfRounds,
     startMatch,
     advanceRound,

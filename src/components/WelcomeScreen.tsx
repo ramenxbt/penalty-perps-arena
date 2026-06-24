@@ -5,6 +5,7 @@
  */
 
 import { Target, TrendingUp, Trophy } from "lucide-react";
+import { CONCEDE_WARNING_LINE, PROFIT_TO_SHOTS_LINE } from "../game/engine";
 
 const STEPS = [
   { icon: TrendingUp, title: "Trade", body: "Call Long or Short on a live crypto chart." },
@@ -35,6 +36,14 @@ export function WelcomeScreen(props: { ctaLabel: string; note: string; onCta: ()
               <small>{step.body}</small>
             </div>
           ))}
+        </div>
+
+        <div className="welcome-rule">
+          <p className="welcome-rule-line">
+            Profit becomes penalty shots ({PROFIT_TO_SHOTS_LINE}). Bury them for goals, goals
+            become points and rank.
+          </p>
+          <p className="welcome-rule-warn">{CONCEDE_WARNING_LINE}</p>
         </div>
 
         <button className="primary-action full welcome-cta" type="button" onClick={props.onCta}>

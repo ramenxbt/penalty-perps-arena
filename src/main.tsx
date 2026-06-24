@@ -3,6 +3,7 @@ import { createRoot } from "react-dom/client";
 import { App } from "./App";
 import { AppAuthProvider } from "./auth/AuthContext";
 import { ErrorBoundary } from "./components/ErrorBoundary";
+import { ToastProvider } from "./components/Toast";
 import "./styles.css";
 
 const container = document.getElementById("root");
@@ -12,7 +13,9 @@ createRoot(container).render(
   <React.StrictMode>
     <ErrorBoundary>
       <AppAuthProvider>
-        <App />
+        <ToastProvider>
+          <App />
+        </ToastProvider>
       </AppAuthProvider>
     </ErrorBoundary>
   </React.StrictMode>,

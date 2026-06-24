@@ -18,6 +18,7 @@ import { Lighting } from "./arena/Lighting";
 import { detectQuality, downgrade, QualitySettings } from "./arena/quality";
 import { SceneManager } from "./arena/SceneManager";
 import { ScoreboardData } from "./arena/Scoreboard";
+import { resolveShooterResult } from "./game/outcome";
 import { RoundPhase, Shooter } from "./game/types";
 
 type ArenaSceneProps = {
@@ -112,24 +113,29 @@ export function ArenaScene({ phase, shooters, hud, mood }: ArenaSceneProps) {
 
   const you = shooters.find((s) => s.isYou);
   const showFlash = phase === "settled" && !!you;
-  const flashText = you
-    ? you.shots <= 0
-      ? "NO SHOT"
-      : you.goals > 0
-        ? you.goals > 1
-          ? `${you.goals} GOALS`
-          : "GOAL"
-        : "BLOCKED"
-    : "";
-  const flashClass = you && you.goals > 0 ? "is-goal" : "is-saved";
+  const result = you ? resolveShooterResult(you) : null;
+  const flashText = result ? result.label : "";
+  const flashClass = result && result.verdict === "goal" ? "is-goal" : "is-saved";
+  // Ceremony subline: banked points read as a reward, a blocked/no-shot reads as the verdict.
+  const flashSub =
+    result && result.verdict === "goal" && result.points > 0
+      ? `+${result.points} points`
+      : result && result.verdict === "conceded"
+        ? "Goals against"
+        : result && result.verdict === "no-kick"
+          ? "No shot taken"
+          : result
+            ? "Keeper saved it"
+            : "";
 
   return (
     <>
       <canvas className="arena-scene" ref={canvasRef} aria-label="3D penalty arena" />
       {SHOW_STATS && <div className="arena-stats" ref={statsRef} aria-hidden="true" />}
       {showFlash && (
-        <div className={`goal-flash ${flashClass}`} aria-hidden="true">
-          <span>{flashText}</span>
+        <div className={`goal-flash ${flashClass}`} role="status" aria-live="polite">
+          <span className="goal-flash-verdict">{flashText}</span>
+          {flashSub && <span className="goal-flash-sub">{flashSub}</span>}
         </div>
       )}
     </>

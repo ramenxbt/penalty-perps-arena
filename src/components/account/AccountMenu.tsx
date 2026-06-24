@@ -12,8 +12,8 @@ import { useEffect, useRef, useState } from "react";
 import {
   BadgeCheck,
   Check,
-  ChevronRight,
   Copy,
+  HelpCircle,
   LogOut,
   UserRound,
   Volume2,
@@ -21,6 +21,7 @@ import {
   Wallet,
 } from "lucide-react";
 import { truncateAddress, type AuthState } from "../../auth/AuthContext";
+import { useToast } from "../Toast";
 
 export type AccountMenuProps = {
   auth: AuthState;
@@ -30,12 +31,14 @@ export type AccountMenuProps = {
   soundOn: boolean;
   onToggleSound: (next: boolean) => void;
   onViewProfile: () => void;
+  onHowToPlay: () => void;
 };
 
 export function AccountMenu(props: AccountMenuProps) {
-  const { auth, isHolder, tokenSymbol, soundOn, onToggleSound, onViewProfile } = props;
+  const { auth, isHolder, tokenSymbol, soundOn, onToggleSound, onViewProfile, onHowToPlay } = props;
   const [open, setOpen] = useState(false);
   const [copied, setCopied] = useState(false);
+  const toast = useToast();
   const rootRef = useRef<HTMLDivElement>(null);
   const triggerRef = useRef<HTMLButtonElement>(null);
 
@@ -90,9 +93,11 @@ export function AccountMenu(props: AccountMenuProps) {
     try {
       await navigator.clipboard.writeText(address);
       setCopied(true);
+      toast.push({ title: "Wallet address copied", tone: "positive", dedupeKey: "copy" });
       window.setTimeout(() => setCopied(false), 1800);
     } catch {
       setCopied(false);
+      toast.push({ title: "Could not copy address", tone: "error", dedupeKey: "copy" });
     }
   };
 
@@ -110,7 +115,6 @@ export function AccountMenu(props: AccountMenuProps) {
           <UserRound size={16} />
         </span>
         <span className="account-handle">{handle}</span>
-        <ChevronRight size={15} className="account-caret" aria-hidden="true" />
       </button>
 
       {open && (
@@ -126,6 +130,19 @@ export function AccountMenu(props: AccountMenuProps) {
           >
             <UserRound size={16} />
             <span>View profile</span>
+          </button>
+
+          <button
+            className="account-item"
+            type="button"
+            role="menuitem"
+            onClick={() => {
+              onHowToPlay();
+              close();
+            }}
+          >
+            <HelpCircle size={16} />
+            <span>How to play</span>
           </button>
 
           {address ? (

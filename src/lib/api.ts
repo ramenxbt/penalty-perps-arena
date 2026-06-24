@@ -18,6 +18,7 @@ import {
   Direction,
   LeaderboardSnapshot,
   MarketSymbol,
+  PlayerProgression,
   PlayerProfile,
   RoundOutcome,
   Shooter,
@@ -52,6 +53,16 @@ export type RoundResult = {
   profile: PlayerProfile;
 };
 
+/** A finished cup the local backend should fold into persistent progression. */
+export type RecordCupInput = {
+  placement: number;
+  fieldSize: number;
+  points: number;
+  goals: number;
+  /** Honor ids unlocked by this cup (e.g. "cup_winner", "hat_trick"). */
+  honorIds: string[];
+};
+
 export interface GameApi {
   readonly mode: "local" | "connected";
   loadProfile(): Promise<PlayerProfile>;
@@ -67,6 +78,13 @@ export interface GameApi {
   openTrade(input: OpenTradeInput): Promise<TradeRound>;
   /** Close (manually or via auto-close) and resolve the volley. */
   closeTrade(input: CloseTradeInput): Promise<RoundResult>;
+  /**
+   * Persistent player progression (score, streak, earned honors, cup history).
+   * Optional: only local mode persists today; connected mode keeps this server-side.
+   */
+  getProgression?(): Promise<PlayerProgression>;
+  /** Fold a finished cup into persistent progression. Optional (local mode only today). */
+  recordCupResult?(input: RecordCupInput): Promise<PlayerProgression>;
 }
 
 export async function createGameApi(auth: AuthBridge): Promise<GameApi> {

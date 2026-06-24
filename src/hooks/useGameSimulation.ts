@@ -6,7 +6,7 @@
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { RULES, computePnlPct, resolveShots } from "../game/engine";
+import { RULES, computePnlPct, powerRatioFor, resolveShots } from "../game/engine";
 import { getMarketAsset, MarketAsset, randomMarketAsset } from "../game/markets";
 import {
   BoardRow,
@@ -17,6 +17,7 @@ import {
   Shooter,
   TradeRound,
 } from "../game/types";
+import { RecordCupInput } from "../lib/api";
 import { seedRows } from "../game/seed";
 import { volleyDuration } from "../game/volley";
 import { AuthBridge, GameApi, createGameApi } from "../lib/api";
@@ -254,6 +255,13 @@ export function useGameSimulation() {
     if (round) closeRound(round);
   }, [closeRound, round]);
 
+  const recordCup = useCallback(
+    (input: RecordCupInput) => {
+      api?.recordCupResult?.(input)?.catch(() => {});
+    },
+    [api],
+  );
+
   const resetForMatch = useCallback(() => {
     if (!api) return;
     api
@@ -286,10 +294,10 @@ export function useGameSimulation() {
     : 0;
 
   // Live "shot power": what the current trade would bank right now. Drives the meter.
+  // The ratio is derived from RULES.tiers (see powerRatioFor) so the meter, the dial, and
+  // the shot thresholds all speak one scale.
   const power = resolveShots(pnlPct);
-  const POWER_MIN = -20;
-  const POWER_MAX = 55;
-  const powerRatio = Math.max(0, Math.min(1, (pnlPct - POWER_MIN) / (POWER_MAX - POWER_MIN)));
+  const powerRatio = powerRatioFor(pnlPct);
 
   // The roster shown at rest (idle/trading); replaced by real results during the volley.
   const roster = useMemo<Shooter[]>(() => {
@@ -362,5 +370,6 @@ export function useGameSimulation() {
     closeNow,
     resetRound,
     resetForMatch,
+    recordCup,
   };
 }

@@ -91,3 +91,24 @@ export type BoardRow = {
 export type LeaderboardSnapshot = {
   rows: BoardRow[];
 };
+
+/** One finished cup, recorded for the player's persistent history. */
+export type CupHistoryEntry = {
+  placement: number;
+  fieldSize: number;
+  points: number;
+  goals: number;
+  /** Epoch ms the cup was played. */
+  playedAt: number;
+};
+
+/**
+ * The player's own persistent progression (local mode). Score and streak mirror the
+ * live profile; honors are stable ids accumulated across cups; history is newest-first.
+ */
+export type PlayerProgression = {
+  score: number;
+  streak: number;
+  honorIds: string[];
+  history: CupHistoryEntry[];
+};

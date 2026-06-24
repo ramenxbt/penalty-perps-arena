@@ -27,9 +27,12 @@ import { Direction } from "./game/types";
 import { useArenaAudio } from "./hooks/useArenaAudio";
 import { useSession } from "./hooks/useSession";
 import { RULES } from "./game/engine";
+import { resolveOutcomeResult, roundToastTitle } from "./game/outcome";
+import { useToast } from "./components/Toast";
 import { ProfilePanel } from "./components/profile/ProfilePanel";
 import { AccountMenu } from "./components/account/AccountMenu";
 import {
+  BoardRowChips,
   HistoryView,
   HowToView,
   OpenGamesView,
@@ -73,7 +76,10 @@ export function App() {
   const game = useSession();
   const auth = useAuth();
   const audio = useArenaAudio(game.phase, game.outcome, game.shooters);
+  const toast = useToast();
   const [view, setView] = useState<ShellView>("play");
+  // Brief "GO" beat shown the instant the kickoff countdown ends, before the arena goes live.
+  const [showGo, setShowGo] = useState(false);
 
   // Bright blip when a live trade crosses into a higher shot tier.
   const prevShotsRef = useRef(0);
@@ -82,6 +88,106 @@ export function App() {
     if (trading && game.shotsNow > prevShotsRef.current) audio.playTick();
     prevShotsRef.current = trading ? game.shotsNow : 0;
   }, [game.shotsNow, game.phase, audio.playTick]);
+
+  // Kickoff countdown juice: a clipped tick on every digit, then a whistle + green "GO"
+  // beat the instant the count hits zero and the arena goes live.
+  const prevCountinRef = useRef(game.countin);
+  useEffect(() => {
+    if (game.sessionPhase !== "countdown") {
+      prevCountinRef.current = game.countin;
+      return;
+    }
+    if (game.countin !== prevCountinRef.current) {
+      audio.unlock();
+      audio.playTick();
+      prevCountinRef.current = game.countin;
+    }
+  }, [game.sessionPhase, game.countin, audio.unlock, audio.playTick]);
+
+  const wasCountdownRef = useRef(false);
+  useEffect(() => {
+    if (game.sessionPhase === "countdown") {
+      wasCountdownRef.current = true;
+      return;
+    }
+    if (wasCountdownRef.current && game.sessionPhase === "in_match") {
+      wasCountdownRef.current = false;
+      audio.unlock();
+      audio.playWhistle();
+      setShowGo(true);
+      const timer = window.setTimeout(() => setShowGo(false), 620);
+      return () => window.clearTimeout(timer);
+    }
+    wasCountdownRef.current = false;
+    return undefined;
+  }, [game.sessionPhase, audio.unlock, audio.playWhistle]);
+
+  // Route a settled round's verdict through the toast stack: "+N points, banked X shots".
+  const toastedSettleRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (game.phase !== "settled" || !game.outcome) {
+      if (game.phase !== "settled") toastedSettleRef.current = null;
+      return;
+    }
+    const result = resolveOutcomeResult(game.outcome);
+    const stamp = `${result.points}:${result.goals}:${result.shots}:${result.pnlPct.toFixed(2)}`;
+    if (toastedSettleRef.current === stamp) return;
+    toastedSettleRef.current = stamp;
+    toast.push({
+      title: roundToastTitle(result),
+      detail: result.summary,
+      tone: result.positive ? "positive" : "neutral",
+      dedupeKey: "round-result",
+    });
+  }, [game.phase, game.outcome, toast]);
+
+  // Streak milestones (every 3 banked-in-a-row), gold cue.
+  const prevStreakRef = useRef(game.streak);
+  useEffect(() => {
+    const prev = prevStreakRef.current;
+    prevStreakRef.current = game.streak;
+    if (game.streak > prev && game.streak >= 3 && game.streak % 3 === 0) {
+      toast.push({
+        title: `${game.streak} round streak`,
+        detail: "Keep closing in profit to stack the streak bonus.",
+        tone: "positive",
+        dedupeKey: "streak",
+      });
+    }
+  }, [game.streak, toast]);
+
+  // Daily rounds refilled (a fresh allotment after a reset), neutral cue.
+  const prevRoundsRef = useRef(game.roundsLeft);
+  useEffect(() => {
+    const prev = prevRoundsRef.current;
+    prevRoundsRef.current = game.roundsLeft;
+    if (game.roundsLeft > prev) {
+      toast.push({
+        title: "Rounds refilled",
+        detail: `${game.roundsLeft} ${game.roundsLeft === 1 ? "round" : "rounds"} ready to play.`,
+        tone: "neutral",
+        dedupeKey: "rounds-refilled",
+      });
+    }
+  }, [game.roundsLeft, toast]);
+
+  // Transient errors flow through the toast; the pinned banner stays for blocking states.
+  const lastTransientRef = useRef<string | null>(null);
+  useEffect(() => {
+    const transient = game.error && game.error !== game.backendError ? game.error : null;
+    if (!transient) {
+      if (!game.error) lastTransientRef.current = null;
+      return;
+    }
+    if (lastTransientRef.current === transient) return;
+    lastTransientRef.current = transient;
+    toast.push({
+      title: game.phase === "closeFailed" ? "Close failed" : "Something went wrong",
+      detail: transient,
+      tone: "error",
+      dedupeKey: "transient-error",
+    });
+  }, [game.error, game.backendError, game.phase, toast]);
 
   const needsConnect = features.privy && !auth.isAuthenticated;
   if (game.sessionPhase === "welcome") {
@@ -141,6 +247,15 @@ export function App() {
   const mood = pnlActive ? Math.max(-1, Math.min(1, game.pnlPct / 30)) : 0;
   const priceDeltaPrefix = game.derived.priceDelta >= 0 ? "+" : "-";
   const showOutcome = game.phase === "settled" && Boolean(game.outcome);
+  const outcomeResult = game.outcome ? resolveOutcomeResult(game.outcome) : null;
+
+  // Pinned banner is reserved for blocking auth/config states. Transient errors (a failed
+  // open, a failed close, a network blip) flow through the ephemeral toast stack instead.
+  const blockingError = game.requiresAuth
+    ? "Sign in to compete on the season ladder."
+    : game.backendError
+      ? `Connected backend unavailable: ${game.backendError}`
+      : null;
 
   const statusText = game.requiresAuth
     ? "Sign in to open a position."
@@ -164,8 +279,8 @@ export function App() {
             ? "Close failed. Keep the round and retry settlement."
             : resolving
               ? "Shots away."
-              : game.outcome && game.phase === "settled"
-                ? game.outcome.summary
+              : outcomeResult && game.phase === "settled"
+                ? outcomeResult.summary
                 : "Pick Long or Short to open a position.";
 
   const volley = game.phase === "settled"
@@ -242,14 +357,15 @@ export function App() {
               soundOn={audio.enabled}
               onToggleSound={(next) => audio.setEnabled(next)}
               onViewProfile={() => setView("profile")}
+              onHowToPlay={() => setView("howto")}
             />
           </div>
         </header>
 
-        {game.error && (
+        {blockingError && (
           <div className="alert-banner" role="alert">
             <AlertTriangle size={16} />
-            <span>{game.error}</span>
+            <span>{blockingError}</span>
           </div>
         )}
 
@@ -260,8 +376,8 @@ export function App() {
             walletAddress={game.walletAddress}
             isHolder={game.isHolder}
             tokenSymbol={env.tokenSymbol}
-            rank={game.seed.rank}
-            fieldSize={Math.max(game.rows.length, game.seed.rank)}
+            rank={game.seasonRank}
+            fieldSize={game.fieldSize}
             seasonPoints={game.score}
             streak={game.streak}
             roundsLeft={game.roundsLeft}
@@ -281,12 +397,12 @@ export function App() {
             }}
           />
         ) : view === "standings" ? (
-          <StandingsView rows={game.rows} />
+          <StandingsView rows={game.ladder} meId={game.meId} />
         ) : view === "season" ? (
           <SeasonView
             cupName="Meridian Cup / Day 12"
-            rank={game.seed.rank}
-            fieldSize={Math.max(game.rows.length, game.seed.rank)}
+            rank={game.seasonRank}
+            fieldSize={game.fieldSize}
             seasonPoints={game.score}
           />
         ) : view === "history" ? (
@@ -358,10 +474,14 @@ export function App() {
               active={game.marketReady}
             />
 
-            {inCountdown && (
-              <div className="countdown-overlay" aria-hidden="true">
+            {(inCountdown || showGo) && (
+              <div className={showGo ? "countdown-overlay is-go" : "countdown-overlay"} aria-hidden="true">
                 <span>Round {game.roundNumber} of {game.matchRounds}</span>
-                <strong>{game.countin}</strong>
+                {showGo ? (
+                  <strong>GO</strong>
+                ) : (
+                  <strong key={game.countin}>{game.countin}</strong>
+                )}
               </div>
             )}
 
@@ -533,12 +653,14 @@ export function App() {
           <div className="ticket-top">
             <span>This round</span>
             <strong>
-              {showOutcome && game.outcome
-                ? game.outcome.shots <= 0
+              {showOutcome && outcomeResult
+                ? outcomeResult.verdict === "no-kick"
                   ? "NO SHOT"
-                  : game.outcome.goals > 0
+                  : outcomeResult.verdict === "goal"
                     ? "GOAL"
-                    : "BLOCKED"
+                    : outcomeResult.verdict === "conceded"
+                      ? "CONCEDED"
+                      : "BLOCKED"
                 : trading
                   ? "TRADING"
                   : settling
@@ -611,29 +733,40 @@ export function App() {
           </div>
 
           <div className="board-list">
-            {game.rows.map((row) => (
-              <div className={row.isAi ? "board-row ai-row" : "board-row"} key={row.id}>
-                <span className="rank">{row.rank}</span>
-                <span className="avatar">{row.avatar}</span>
-                <div className="board-name">
-                  <strong>{row.name}</strong>
-                  <span>
-                    {row.isAi ? (
-                      <>
-                        <Bot size={13} /> AI squad
-                      </>
-                    ) : row.isHolder ? (
-                      <>
-                        <BadgeCheck size={13} /> holder
-                      </>
-                    ) : (
-                      "player"
-                    )}
-                  </span>
+            {game.ladder.map((row) => {
+              const you = row.id === game.meId;
+              const className = you
+                ? "board-row you"
+                : row.isAi
+                  ? "board-row ai-row"
+                  : "board-row";
+              return (
+                <div className={className} key={row.id}>
+                  <span className="rank">{row.rank}</span>
+                  <span className="avatar">{row.avatar}</span>
+                  <div className="board-name">
+                    <strong>{you ? "You" : row.name}</strong>
+                    <span>
+                      {you ? (
+                        "you"
+                      ) : row.isAi ? (
+                        <>
+                          <Bot size={13} /> AI squad
+                        </>
+                      ) : row.isHolder ? (
+                        <>
+                          <BadgeCheck size={13} /> holder
+                        </>
+                      ) : (
+                        "player"
+                      )}
+                    </span>
+                  </div>
+                  <BoardRowChips streak={row.streak} movement={row.movement} />
+                  <span className="board-score">{row.score.toLocaleString()}</span>
                 </div>
-                <span className="board-score">{row.score.toLocaleString()}</span>
-              </div>
-            ))}
+              );
+            })}
           </div>
         </section>
       </aside>

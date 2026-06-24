@@ -5,8 +5,11 @@
  * persistent standing and is updated by the existing round loop.
  */
 
-import { roundPoints } from "./engine";
+import { roundPoints, RULES } from "./engine";
 import { BoardRow, Shooter } from "./types";
+
+/** Stable id for the player's own row across the local backend and the derived ladder. */
+export const ME_ID = "me";
 
 export type SessionPhase =
   | "welcome"
@@ -97,6 +100,45 @@ export function buildField(
 /** Per-round points for an AI co-shooter, mirroring the engine scoring (streak-free). */
 export function shooterRoundPoints(shooter: Shooter): number {
   return roundPoints(shooter.goals, shooter.pnlPct, 0);
+}
+
+/** The player's own identity + live progression, as the ladder needs it. */
+export type LadderSelf = {
+  /** The player's row id (ME_ID in local mode, the user id in connected mode). */
+  id: string;
+  name: string;
+  avatar: string;
+  score: number;
+  streak: number;
+  isHolder: boolean;
+  /** Rounds already played today, for the "today" column. */
+  playedToday: number;
+};
+
+/**
+ * The single ranked season ladder shown across the UI (right-stack widget, Standings,
+ * Season). It guarantees the player's row is present: if the backend snapshot already
+ * carries it (connected mode, or local after the first trade) that row is refreshed in
+ * place; otherwise a synthetic row is injected (local pre-trade). Everyone is then sorted
+ * by score and given a fresh 1-based rank, so the displayed rank is always derived here.
+ */
+export function buildLadder(rows: BoardRow[], self: LadderSelf): BoardRow[] {
+  const me: BoardRow = {
+    id: self.id,
+    rank: 1,
+    name: self.name,
+    avatar: self.avatar,
+    score: self.score,
+    streak: self.streak,
+    today: `${self.playedToday}/${RULES.dailyRounds}`,
+    isAi: false,
+    isHolder: self.isHolder,
+    movement: self.streak > 0 ? 7 : -1,
+  };
+  const others = rows.filter((row) => row.id !== self.id);
+  return [me, ...others]
+    .sort((a, b) => b.score - a.score)
+    .map((row, index) => ({ ...row, rank: index + 1 }));
 }
 
 export function matchSummary(placement: number, leaderName: string, yourGoals: number): string {

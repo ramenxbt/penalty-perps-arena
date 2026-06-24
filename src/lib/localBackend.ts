@@ -17,16 +17,35 @@ import {
 import { seedRows } from "../game/seed";
 import {
   BoardRow,
+  CupHistoryEntry,
   LeaderboardSnapshot,
   PlayerProfile,
+  PlayerProgression,
   Shooter,
   TradeRound,
 } from "../game/types";
 import { randomMarketAsset } from "../game/markets";
-import { AuthBridge, CloseTradeInput, GameApi, OpenTradeInput, RoundResult } from "./api";
+import {
+  AuthBridge,
+  CloseTradeInput,
+  GameApi,
+  OpenTradeInput,
+  RecordCupInput,
+  RoundResult,
+} from "./api";
+import { readJson, writeJson } from "./storage";
+import { ME_ID } from "../game/match";
 
-const ME_ID = "me";
 const MAX_CO_SHOOTERS = 4;
+const STORAGE_KEY = "ppa:progression:v1";
+const MAX_HISTORY = 50;
+
+const EMPTY_PROGRESSION: PlayerProgression = {
+  score: 0,
+  streak: 0,
+  honorIds: [],
+  history: [],
+};
 
 export class LocalGameApi implements GameApi {
   readonly mode = "local" as const;
@@ -36,14 +55,21 @@ export class LocalGameApi implements GameApi {
   private openRound: (TradeRound & { streakAtOpen: number }) | null = null;
   private subscribers = new Set<(snapshot: LeaderboardSnapshot) => void>();
   private aiTimer: number | null = null;
+  // The player's own persistent progression (honors + cup history). Score and streak
+  // are mirrored from the profile and re-synced into this on every mutation.
+  private honorIds: string[];
+  private history: CupHistoryEntry[];
 
   constructor(private readonly auth: AuthBridge) {
+    const saved = this.restore();
+    this.honorIds = saved.honorIds;
+    this.history = saved.history;
     this.profile = {
       id: ME_ID,
       name: auth.getDisplayName() ?? "@you",
       avatar: "YO",
-      score: 0,
-      streak: 0,
+      score: saved.score,
+      streak: saved.streak,
       attemptsRemaining: RULES.dailyRounds,
       isHolder: false,
       walletAddress: auth.getWalletAddress(),
@@ -152,9 +178,35 @@ export class LocalGameApi implements GameApi {
     const shooters = [you, ...coShooters];
 
     this.upsertMe();
+    this.persist();
     this.emit();
 
     return { outcome, shooters, profile: { ...this.profile } };
+  }
+
+  async getProgression(): Promise<PlayerProgression> {
+    return this.progression();
+  }
+
+  async recordCupResult(input: RecordCupInput): Promise<PlayerProgression> {
+    const entry: CupHistoryEntry = {
+      placement: input.placement,
+      fieldSize: input.fieldSize,
+      points: input.points,
+      goals: input.goals,
+      playedAt: Date.now(),
+    };
+    this.history = [entry, ...this.history].slice(0, MAX_HISTORY);
+    // Honor ids are sticky: once earned in any cup they stay earned.
+    this.honorIds = Array.from(new Set([...this.honorIds, ...input.honorIds]));
+    // The cup just changed the player's persisted score, so their ladder row moves.
+    // Nudge a couple of rival rows on finish so the standings around them visibly
+    // reshuffle instead of the player sliding through a frozen field.
+    this.nudgeRivals();
+    this.upsertMe();
+    this.persist();
+    this.emit();
+    return this.progression();
   }
 
   // --- internals ---------------------------------------------------------
@@ -198,6 +250,21 @@ export class LocalGameApi implements GameApi {
     this.rows = [me, ...this.rows.filter((row) => row.id !== ME_ID)];
   }
 
+  /** Bump two non-player rows by a chunky amount so finish-time standings reshuffle. */
+  private nudgeRivals() {
+    const rivals = this.rows.filter((row) => row.id !== ME_ID);
+    if (rivals.length === 0) return;
+    const picks = new Set<string>();
+    while (picks.size < Math.min(2, rivals.length)) {
+      picks.add(rivals[Math.floor(Math.random() * rivals.length)].id);
+    }
+    this.rows = this.rows.map((row) =>
+      picks.has(row.id)
+        ? { ...row, score: Math.max(0, row.score + Math.round(Math.random() * 120 - 30)) }
+        : row,
+    );
+  }
+
   private driftAi() {
     this.rows = this.rows.map((row) =>
       row.isAi
@@ -217,5 +284,43 @@ export class LocalGameApi implements GameApi {
   private emit() {
     const snapshot = this.snapshot();
     this.subscribers.forEach((fn) => fn(snapshot));
+  }
+
+  /** Current persistent progression, with score/streak synced from the live profile. */
+  private progression(): PlayerProgression {
+    return {
+      score: this.profile.score,
+      streak: this.profile.streak,
+      honorIds: [...this.honorIds],
+      history: this.history.map((entry) => ({ ...entry })),
+    };
+  }
+
+  /** Restore progression from localStorage, sanitizing each field to a safe shape. */
+  private restore(): PlayerProgression {
+    const saved = readJson<Partial<PlayerProgression>>(STORAGE_KEY, EMPTY_PROGRESSION);
+    return {
+      score: typeof saved.score === "number" && saved.score >= 0 ? saved.score : 0,
+      streak: typeof saved.streak === "number" && saved.streak >= 0 ? saved.streak : 0,
+      honorIds: Array.isArray(saved.honorIds)
+        ? saved.honorIds.filter((id): id is string => typeof id === "string")
+        : [],
+      history: Array.isArray(saved.history)
+        ? saved.history
+            .filter((entry): entry is CupHistoryEntry =>
+              Boolean(entry) &&
+              typeof entry.placement === "number" &&
+              typeof entry.fieldSize === "number" &&
+              typeof entry.points === "number" &&
+              typeof entry.goals === "number" &&
+              typeof entry.playedAt === "number",
+            )
+            .slice(0, MAX_HISTORY)
+        : [],
+    };
+  }
+
+  private persist() {
+    writeJson(STORAGE_KEY, this.progression());
   }
 }
