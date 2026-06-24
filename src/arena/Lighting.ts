@@ -24,7 +24,9 @@ export class Lighting {
   private moodTarget = 0;
 
   constructor(scene: THREE.Scene, quality: QualitySettings) {
-    const hemi = new THREE.HemisphereLight(0xcfeede, 0x09140d, 0.9);
+    // Sky brighter than ground so rounded figures (the crowd especially) get a clear top-down
+    // gradient; the ground term is lifted off pure black so undersides read as form, not voids.
+    const hemi = new THREE.HemisphereLight(0xdef2e8, 0x1b271f, 1.1);
     hemi.position.set(0, 12, 0);
 
     const key = new THREE.SpotLight(0xffffff, quality.shadows ? 7.5 : 9, 48, Math.PI / 4.4, 0.55, 1.0);

@@ -53,7 +53,7 @@ const SIDE_X = 12.5; // x of each sideline front wall
 const SIDE_DEPTH = 9;
 const SIDE_RISE = 13;
 const SIDE_ZF = 7; // sideline front edge (near the camera)
-const SIDE_ZB = -22; // sideline back edge (past the goal)
+const SIDE_ZB = -13; // sideline back edge: meets the goal-end stand at END_Z so they never overlap
 const FRONT_Y = 1.6; // height of the front (first) seating row (also the front wall top)
 
 type V3 = [number, number, number];
@@ -178,7 +178,10 @@ export class Environment {
       const zF = END_Z - r * eDepth;
       const zB = zF - eDepth;
       pushQuad(endPos, [-END_HALF, yT, zF], [END_HALF, yT, zF], [END_HALF, yT, zB], [-END_HALF, yT, zB]); // tread
-      pushQuad(endPos, [-END_HALF, yT - eRise, zF], [END_HALF, yT - eRise, zF], [END_HALF, yT, zF], [-END_HALF, yT, zF]); // riser
+      // Riser from row 1 up only; row 0's riser would land on the front wall plane (z-fight).
+      if (r > 0) {
+        pushQuad(endPos, [-END_HALF, yT - eRise, zF], [END_HALF, yT - eRise, zF], [END_HALF, yT, zF], [-END_HALF, yT, zF]);
+      }
     }
     scene.add(new THREE.Mesh(this.track(geoFromPositions(endPos)), deckMat));
     const eWall: number[] = [];
@@ -195,7 +198,9 @@ export class Environment {
         const xF = sign * (SIDE_X + r * sDepth);
         const xB = sign * (SIDE_X + (r + 1) * sDepth);
         pushQuad(sp, [xF, yT, SIDE_ZF], [xB, yT, SIDE_ZF], [xB, yT, SIDE_ZB], [xF, yT, SIDE_ZB]); // tread
-        pushQuad(sp, [xF, yT - sRise, SIDE_ZF], [xF, yT - sRise, SIDE_ZB], [xF, yT, SIDE_ZB], [xF, yT, SIDE_ZF]); // riser
+        if (r > 0) {
+          pushQuad(sp, [xF, yT - sRise, SIDE_ZF], [xF, yT - sRise, SIDE_ZB], [xF, yT, SIDE_ZB], [xF, yT, SIDE_ZF]); // riser
+        }
       }
       scene.add(new THREE.Mesh(this.track(geoFromPositions(sp)), deckMat));
       const sWall: number[] = [];
@@ -291,9 +296,11 @@ export class Environment {
     const torsoGeo = this.track(new THREE.CylinderGeometry(0.16, 0.26, 0.5, 6, 1));
     const headGeo = this.track(new THREE.SphereGeometry(0.12, 6, 5));
     headGeo.translate(0, 0.42, 0); // sit the head on the shoulders (shares the fan matrix)
-    // Self-lit (unlit) so the distant crowd never goes dark; instance colors show at full.
-    const torsoMat = this.track(new THREE.MeshBasicMaterial({ toneMapped: false }));
-    const headMat = this.track(new THREE.MeshBasicMaterial({ toneMapped: false }));
+    // Lit (Lambert) so the hemisphere + key light give every fan real top-down form from our
+    // camera POV; a low emissive floor keeps the distant crowd from crushing to black. The
+    // per-instance color is the diffuse, so the team colors still read.
+    const torsoMat = this.track(new THREE.MeshLambertMaterial({ emissive: 0x161616 }));
+    const headMat = this.track(new THREE.MeshLambertMaterial({ emissive: 0x181818 }));
 
     const torsos = new THREE.InstancedMesh(torsoGeo, torsoMat, count);
     const heads = new THREE.InstancedMesh(headGeo, headMat, count);
