@@ -31,6 +31,9 @@ import { resolveOutcomeResult, roundToastTitle } from "./game/outcome";
 import { useToast } from "./components/Toast";
 import { ProfilePanel } from "./components/profile/ProfilePanel";
 import { AccountMenu } from "./components/account/AccountMenu";
+import { StadiumTuner } from "./components/StadiumTuner";
+
+const TUNE_MODE = typeof location !== "undefined" && location.search.includes("tune");
 import {
   BoardRowChips,
   HistoryView,
@@ -770,6 +773,7 @@ export function App() {
           </div>
         </section>
       </aside>
+      {TUNE_MODE && <StadiumTuner />}
     </main>
   );
 }
