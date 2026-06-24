@@ -26,19 +26,64 @@ const AWAY_KIT = [0xb35a48, 0x8f4236, 0xd1735f];
 const NEUTRAL = [0x767b82, 0x847a70, 0x8e9197];
 const ACCENT_HOME = 0x65d8ff; // sparse cyan pop on the home side
 const ACCENT_AWAY = 0xffce54; // sparse gold pop on the away side
-const HEAD_TONES = [0xd0b08c, 0xc09a72]; // skin tones, kept visible
 
-type Fan = {
-  x: number;
-  y: number;
-  z: number;
-  scale: number;
-  phase: number; // idle bob, decorrelated per fan
-  swayPhase: number; // lateral sway, decorrelated
-  waveCoord: number; // position along the bowl, times the wave front
-};
+// Billboard crowd shaders. Each fan is one camera-facing quad sampling an anonymous spectator
+// silhouette atlas (2x2: two body types x arms-down/arms-up). All life is in the vertex shader:
+// per-fan bob + sway, a stadium wave sweeping left->right, and arms thrown up on the wave crest.
+const CROWD_VERT = /* glsl */ `
+attribute vec3 aTint;
+attribute float aPhase;
+attribute float aWave;
+attribute float aCell;
+attribute float aScale;
+uniform float uTime;
+uniform float uExcite;
+varying vec2 vUv;
+varying vec3 vTint;
 
-const BOWL_SPAN = 10; // wave travels across t in [0..BOWL_SPAN]
+void main() {
+  vec3 center = vec3(instanceMatrix[3][0], instanceMatrix[3][1], instanceMatrix[3][2]);
+
+  float bob = sin(uTime * 2.0 + aPhase) * (0.015 + uExcite * 0.05);
+  float sway = sin(uTime * 1.3 + aPhase * 1.7) * (0.02 + uExcite * 0.03);
+
+  float front = fract(uTime * (0.07 + uExcite * 0.12));
+  float dist = abs(aWave - front);
+  dist = min(dist, 1.0 - dist);
+  float wave = smoothstep(0.10, 0.0, dist) * (0.12 + uExcite * 0.5);
+
+  center.x += sway;
+  center.y += bob + wave;
+
+  float armsUp = step(0.5, wave * 4.0 + uExcite * 0.45);
+  float cell = aCell + armsUp;
+
+  vec3 toCam = cameraPosition - center;
+  toCam.y = 0.0;
+  toCam = normalize(toCam);
+  vec3 right = normalize(cross(vec3(0.0, 1.0, 0.0), toCam));
+
+  vec3 worldPos = center + right * (position.x * aScale) + vec3(0.0, 1.0, 0.0) * (position.y * aScale);
+  gl_Position = projectionMatrix * viewMatrix * vec4(worldPos, 1.0);
+
+  float col = mod(cell, 2.0);
+  float row = floor(cell / 2.0);
+  vUv = (vec2(col, row) + vec2(uv.x, 1.0 - uv.y)) * 0.5;
+  vTint = aTint;
+}
+`;
+
+const CROWD_FRAG = /* glsl */ `
+uniform sampler2D uMap;
+varying vec2 vUv;
+varying vec3 vTint;
+
+void main() {
+  vec4 t = texture2D(uMap, vUv);
+  if (t.a < 0.4) discard;
+  gl_FragColor = vec4(t.rgb * vTint, 1.0);
+}
+`;
 
 /**
  * The stadium bowl: a U of raked stands around the goal end (the camera looks from +Z toward
@@ -73,11 +118,9 @@ function geoFromPositions(out: number[]): THREE.BufferGeometry {
 
 export class Environment {
   private disposables: Array<{ dispose: () => void }> = [];
-  private torsos: THREE.InstancedMesh | null = null;
-  private heads: THREE.InstancedMesh | null = null;
-  private fans: Fan[] = [];
-  private dummy = new THREE.Object3D();
-  private wavePhase = 0;
+  private crowd: THREE.InstancedMesh | null = null;
+  private crowdMat: THREE.ShaderMaterial | null = null;
+  private crowdAtlas: THREE.CanvasTexture | null = null;
   private excitement = 0;
   private excitementTarget = 0;
   private adTexture: THREE.CanvasTexture | null = null;
@@ -256,108 +299,154 @@ export class Environment {
     }
   }
 
+  /** Draw the anonymous spectator silhouette atlas once: 2x2 (two body types x arms-down/up). */
+  private makeCrowdAtlas(): THREE.CanvasTexture {
+    if (this.crowdAtlas) return this.crowdAtlas;
+    const cv = document.createElement("canvas");
+    cv.width = 256;
+    cv.height = 256;
+    const ctx = cv.getContext("2d");
+    if (ctx) {
+      const drawPerson = (ox: number, oy: number, armsUp: boolean, tall: boolean) => {
+        const cell = 128;
+        const midX = ox + cell / 2;
+        const baseY = oy + cell - 10;
+        const headR = 15;
+        const headCy = oy + (tall ? 22 : 30) + headR;
+        const shoulderY = headCy + headR + 5;
+        const topW = tall ? 30 : 36;
+        const botW = tall ? 42 : 50;
+        // Vertical gradient gives each silhouette form even when flat-tinted (light top, dark base).
+        const g = ctx.createLinearGradient(0, oy + 10, 0, baseY);
+        g.addColorStop(0, "#eef1f4");
+        g.addColorStop(1, "#a7adb4");
+        ctx.fillStyle = g;
+        ctx.strokeStyle = g;
+        ctx.lineCap = "round";
+        if (armsUp) {
+          ctx.lineWidth = 12;
+          ctx.beginPath();
+          ctx.moveTo(midX - topW / 2 + 3, shoulderY + 2);
+          ctx.lineTo(midX - topW / 2 - 8, shoulderY - 30);
+          ctx.stroke();
+          ctx.beginPath();
+          ctx.moveTo(midX + topW / 2 - 3, shoulderY + 2);
+          ctx.lineTo(midX + topW / 2 + 8, shoulderY - 30);
+          ctx.stroke();
+        }
+        ctx.beginPath();
+        ctx.moveTo(midX - topW / 2, shoulderY);
+        ctx.quadraticCurveTo(midX - botW / 2, (shoulderY + baseY) / 2, midX - botW / 2, baseY);
+        ctx.lineTo(midX + botW / 2, baseY);
+        ctx.quadraticCurveTo(midX + botW / 2, (shoulderY + baseY) / 2, midX + topW / 2, shoulderY);
+        ctx.closePath();
+        ctx.fill();
+        ctx.beginPath();
+        ctx.arc(midX, headCy, headR, 0, Math.PI * 2);
+        ctx.fill();
+      };
+      drawPerson(0, 0, false, false); // cell 0: body A, arms down
+      drawPerson(128, 0, true, false); // cell 1: body A, arms up
+      drawPerson(0, 128, false, true); // cell 2: body B, arms down
+      drawPerson(128, 128, true, true); // cell 3: body B, arms up
+    }
+    const tex = this.track(new THREE.CanvasTexture(cv));
+    tex.colorSpace = THREE.SRGBColorSpace;
+    tex.flipY = false; // match canvas top-left origin to the UV math in the shader
+    tex.minFilter = THREE.LinearMipmapLinearFilter;
+    this.crowdAtlas = tex;
+    return tex;
+  }
+
   private addCrowd(scene: THREE.Scene, quality: QualitySettings) {
-    // Seats are sampled directly on the three decks, so every fan sits ON a stand.
-    const seats: { x: number; y: number; z: number; t: number; coord: number; side: boolean }[] = [];
-    // One fan row per seating tier (same row count as the stands), so every fan sits on a tread.
-    // Density across is decoupled from the perf rings so the stand reads as a PACKED crowd.
+    // Seats sampled on the three decks; one camera-facing billboard per seat (the impostor crowd).
+    const seats: { x: number; y: number; z: number; t: number; side: boolean }[] = [];
     const rows = this.bowlRows(quality);
-    const endCols = quality.tier === "high" ? 58 : quality.tier === "medium" ? 42 : 28;
-    const sideCols = quality.tier === "high" ? 28 : quality.tier === "medium" ? 20 : 12;
+    const endCols = quality.tier === "high" ? 66 : quality.tier === "medium" ? 46 : 30;
+    const sideCols = quality.tier === "high" ? 32 : quality.tier === "medium" ? 22 : 14;
 
     const eRise = END_RISE / rows;
     const eDepth = END_DEPTH / rows;
     for (let r = 0; r < rows; r += 1) {
-      const yT = FRONT_Y + r * eRise + 0.28; // torso base sits on the tread
-      const zC = END_Z - r * eDepth - eDepth * 0.5; // middle of the tread
+      const yT = FRONT_Y + r * eRise + 0.04; // billboard base on the tread
+      const zC = END_Z - r * eDepth - eDepth * 0.5;
       for (let c = 0; c < endCols; c += 1) {
         const u = endCols > 1 ? c / (endCols - 1) : 0.5;
-        const ju = ((Math.random() - 0.5) * 0.7) / endCols; // break the perfect grid
+        const ju = ((Math.random() - 0.5) * 0.7) / endCols;
         const x = -END_HALF + 1.4 + Math.min(1, Math.max(0, u + ju)) * (2 * END_HALF - 2.8);
-        seats.push({ x, y: yT, z: zC, t: u, coord: u * BOWL_SPAN, side: false });
+        seats.push({ x, y: yT, z: zC, t: u, side: false });
       }
     }
     const sRise = SIDE_RISE / rows;
     const sDepth = SIDE_DEPTH / rows;
     for (const sign of [-1, 1]) {
       for (let r = 0; r < rows; r += 1) {
-        const yT = FRONT_Y + r * sRise + 0.28;
+        const yT = FRONT_Y + r * sRise + 0.04;
         const xC = sign * (SIDE_X + r * sDepth + sDepth * 0.5);
         for (let c = 0; c < sideCols; c += 1) {
           const u = sideCols > 1 ? c / (sideCols - 1) : 0.5;
           const z = SIDE_ZF - 1 - u * (SIDE_ZF - SIDE_ZB - 2);
-          const coord = sign < 0 ? -2 - u * 4 : BOWL_SPAN + 2 + u * 4;
-          seats.push({ x: xC, y: yT, z, t: sign < 0 ? 0 : 1, coord, side: true });
+          seats.push({ x: xC, y: yT, z, t: sign < 0 ? 0 : 1, side: true });
         }
       }
     }
 
     const count = seats.length;
-    const torsoGeo = this.track(new THREE.CylinderGeometry(0.16, 0.26, 0.5, 6, 1));
-    const headGeo = this.track(new THREE.SphereGeometry(0.12, 6, 5));
-    headGeo.translate(0, 0.42, 0); // sit the head on the shoulders (shares the fan matrix)
-    // Lit (Lambert) so the hemisphere + key light give every fan real top-down form from our
-    // camera POV; a low emissive floor keeps the distant crowd from crushing to black. The
-    // per-instance color is the diffuse, so the team colors still read.
-    const torsoMat = this.track(new THREE.MeshLambertMaterial({ emissive: 0x161616 }));
-    const headMat = this.track(new THREE.MeshLambertMaterial({ emissive: 0x181818 }));
+    const W = 0.66;
+    const H = 1.02;
+    const geo = this.track(new THREE.PlaneGeometry(W, H));
+    geo.translate(0, H / 2, 0); // base at origin so the sprite stands on the tread
 
-    const torsos = new THREE.InstancedMesh(torsoGeo, torsoMat, count);
-    const heads = new THREE.InstancedMesh(headGeo, headMat, count);
-    torsos.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
-    heads.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+    const mat = this.track(
+      new THREE.ShaderMaterial({
+        uniforms: { uMap: { value: this.makeCrowdAtlas() }, uTime: { value: 0 }, uExcite: { value: 0 } },
+        vertexShader: CROWD_VERT,
+        fragmentShader: CROWD_FRAG,
+      }),
+    );
 
-    const dummy = new THREE.Object3D();
+    const mesh = new THREE.InstancedMesh(geo, mat, count);
+    mesh.frustumCulled = false; // the crowd spans the bowl; per-instance bounds confuse culling
+    const aTint = new Float32Array(count * 3);
+    const aPhase = new Float32Array(count);
+    const aWave = new Float32Array(count);
+    const aCell = new Float32Array(count);
+    const aScale = new Float32Array(count);
+    const m = new THREE.Matrix4();
     const color = new THREE.Color();
-
     seats.forEach((s, i) => {
-      const scale = 0.95 + Math.random() * 0.5;
-      this.fans.push({
-        x: s.x,
-        y: s.y,
-        z: s.z,
-        scale,
-        phase: Math.random() * Math.PI * 2,
-        swayPhase: Math.random() * Math.PI * 2,
-        waveCoord: s.coord,
-      });
+      m.makeTranslation(s.x, s.y, s.z);
+      mesh.setMatrixAt(i, m);
 
-      dummy.position.set(s.x, s.y, s.z);
-      dummy.lookAt(0, s.y, -2); // whole bowl faces the penalty spot
-      dummy.scale.setScalar(scale);
-      dummy.updateMatrix();
-      torsos.setMatrixAt(i, dummy.matrix);
-      heads.setMatrixAt(i, dummy.matrix);
-
-      // Team split with a jittered seam; side rows stay neutral. Pockets cluster shades.
-      // One coherent split across the whole bowl: home colors on the left half, away on the right.
+      // One coherent split across the whole bowl: home colors left, away right.
       const home = s.side ? s.x < 0 : s.t < 0.5 + (Math.random() - 0.5) * 0.08;
-      const accentRoll = Math.random();
       let hex: number;
-      if (accentRoll < 0.05) {
-        hex = home ? ACCENT_HOME : ACCENT_AWAY; // sparse lit pop
+      if (Math.random() < 0.05) {
+        hex = home ? ACCENT_HOME : ACCENT_AWAY;
       } else {
         const p = this.pocket(s.x, s.z);
         const neutral = Math.random() < 0.16;
         const kit = neutral ? NEUTRAL : home ? HOME_KIT : AWAY_KIT;
-        const shade = p > 0.3 ? kit[2] : p < -0.3 ? kit[1] : kit[0];
-        hex = shade;
+        hex = p > 0.3 ? kit[2] : p < -0.3 ? kit[1] : kit[0];
       }
-      // Keep the crowd bright and readable, with just a little per-fan variation.
-      const fade = 0.86 + Math.random() * 0.28;
-      color.set(hex).multiplyScalar(fade);
-      torsos.setColorAt(i, color);
-      color.set(HEAD_TONES[(Math.random() * HEAD_TONES.length) | 0]).multiplyScalar(0.9 + Math.random() * 0.2);
-      heads.setColorAt(i, color);
+      color.set(hex).multiplyScalar(0.9 + Math.random() * 0.25);
+      aTint[i * 3] = color.r;
+      aTint[i * 3 + 1] = color.g;
+      aTint[i * 3 + 2] = color.b;
+      aPhase[i] = Math.random() * Math.PI * 2;
+      aWave[i] = Math.min(1, Math.max(0, (s.x + 24) / 48)); // left->right wave coord
+      aCell[i] = Math.random() < 0.5 ? 0 : 2; // body variant (arms-down base)
+      aScale[i] = 0.86 + Math.random() * 0.42;
     });
-
-    torsos.instanceMatrix.needsUpdate = true;
-    heads.instanceMatrix.needsUpdate = true;
-    if (torsos.instanceColor) torsos.instanceColor.needsUpdate = true;
-    if (heads.instanceColor) heads.instanceColor.needsUpdate = true;
-    scene.add(torsos, heads);
-    this.torsos = this.track(torsos);
-    this.heads = this.track(heads);
+    geo.setAttribute("aTint", new THREE.InstancedBufferAttribute(aTint, 3));
+    geo.setAttribute("aPhase", new THREE.InstancedBufferAttribute(aPhase, 1));
+    geo.setAttribute("aWave", new THREE.InstancedBufferAttribute(aWave, 1));
+    geo.setAttribute("aCell", new THREE.InstancedBufferAttribute(aCell, 1));
+    geo.setAttribute("aScale", new THREE.InstancedBufferAttribute(aScale, 1));
+    mesh.instanceMatrix.needsUpdate = true;
+    scene.add(mesh);
+    this.crowd = this.track(mesh);
+    this.crowdMat = mat;
   }
 
   /** Four corner floodlight pylons: a tall slim mast, a lamp bank, and an additive bloom. Kept
@@ -566,40 +655,19 @@ export class Environment {
       b.mesh.rotation.y = Math.sin(elapsed * 1.1 + b.phase) * (0.12 + ex * 0.12);
     }
 
-    const torsos = this.torsos;
-    const heads = this.heads;
-    if (!torsos || !heads) return;
-
-    const bobAmp = 0.045 * (1 + 0.9 * ex);
-    const waveSpeed = 1.3 + ex * 1.7;
-    const waveLift = 0.18 + ex * 0.4;
-    this.wavePhase = (this.wavePhase + dt * waveSpeed) % (BOWL_SPAN + 4);
-
-    const d = this.dummy;
-    for (let i = 0; i < this.fans.length; i += 1) {
-      const f = this.fans[i];
-      const bob = Math.sin(elapsed * 2.1 + f.phase) * bobAmp;
-      const sway = Math.sin(elapsed * 1.3 + f.swayPhase) * 0.03;
-      let p = 1 - Math.abs(this.wavePhase - f.waveCoord) / 2.4;
-      p = p > 0 ? p * p * (3 - 2 * p) : 0; // smoothstep the wave front
-      const y = f.y + bob + p * waveLift;
-      d.position.set(f.x + sway, y, f.z);
-      d.lookAt(0, y, -2);
-      d.scale.setScalar(f.scale);
-      d.updateMatrix();
-      torsos.setMatrixAt(i, d.matrix);
-      heads.setMatrixAt(i, d.matrix);
+    // The crowd animates entirely in its shader; just feed it the clock + the energy.
+    if (this.crowdMat) {
+      this.crowdMat.uniforms.uTime.value = elapsed;
+      this.crowdMat.uniforms.uExcite.value = ex;
     }
-    torsos.instanceMatrix.needsUpdate = true;
-    heads.instanceMatrix.needsUpdate = true;
   }
 
   dispose() {
     this.disposables.forEach((item) => item.dispose());
     this.disposables = [];
-    this.torsos = null;
-    this.heads = null;
-    this.fans = [];
+    this.crowd = null;
+    this.crowdMat = null;
+    this.crowdAtlas = null;
     this.flashes = [];
     this.banners = [];
     this.flagTextures = [];
