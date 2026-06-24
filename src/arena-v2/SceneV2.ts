@@ -7,11 +7,22 @@
 import * as THREE from "three";
 import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
 import { PAL } from "./palette";
+import { BallTrail } from "./BallTrail";
+import { PostFx } from "./PostFx";
 import { addInkOutline, createToonMaterial, DEFAULT_RAMP } from "./toon";
 
 const GOAL_Z = -11;
 const GOAL_W = 7.32;
 const GOAL_H = 2.44;
+
+// Strike sequence timings (seconds of game time).
+const RUNUP = 0.55;
+const STRIKE = 0.42;
+const CONTACT = 0.16; // boot meets ball this far into the strike
+const RECOVER = 0.7;
+const FLIGHT = 1.0;
+const smooth = (t: number) => t * t * (3 - 2 * t);
+const easeInOut = (t: number) => (t < 0.5 ? 2 * t * t : 1 - (-2 * t + 2) ** 2 / 2);
 
 export class SceneV2 {
   readonly renderer: THREE.WebGLRenderer;
@@ -21,6 +32,30 @@ export class SceneV2 {
   private clips = new Map<string, THREE.AnimationAction>();
   private kicker: THREE.Object3D | null = null;
   private disposables: Array<{ dispose: () => void }> = [];
+
+  // Strike sequence state.
+  private ball: THREE.Mesh | null = null;
+  private legThighR: THREE.Object3D | null = null;
+  private legShinR: THREE.Object3D | null = null;
+  private phase: "idle" | "runup" | "strike" | "recover" = "idle";
+  private phaseT = 0;
+  private autoTimer = 1.5;
+  private timeScale = 1;
+  private timeScaleTarget = 1;
+  private slowmoT = 0;
+  private ballFlying = false;
+  private ballT = 0;
+  private aimX = 0;
+  private aimY = 1;
+  private readonly startPos = new THREE.Vector3(-0.7, 0, 1.5);
+  private readonly plantPos = new THREE.Vector3(-0.42, 0, 0.5);
+  private readonly ballHome = new THREE.Vector3(0, 0.22, 0);
+  private readonly ballFrom = new THREE.Vector3();
+  private readonly ballTo = new THREE.Vector3();
+  private readonly qTmp = new THREE.Quaternion();
+  private readonly axisX = new THREE.Vector3(1, 0, 0);
+  private postfx: PostFx | null = null;
+  private trail: BallTrail | null = null;
 
   constructor(canvas: HTMLCanvasElement) {
     this.renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
@@ -41,6 +76,8 @@ export class SceneV2 {
     this.addGoal();
     this.addBall();
     void this.loadCharacter();
+    this.postfx = new PostFx(this.renderer, this.scene, this.camera, { enabled: true });
+    this.trail = new BallTrail(this.scene, { color: PAL.accent, width: 0.14, length: 22 });
     (window as unknown as { __v2: SceneV2 }).__v2 = this; // TEMP debug handle
   }
 
@@ -200,6 +237,7 @@ export class SceneV2 {
     ball.name = "ball";
     addInkOutline(ball, PAL.outline, 0.009);
     this.scene.add(ball);
+    this.ball = ball;
   }
 
   private async loadCharacter() {
@@ -211,7 +249,10 @@ export class SceneV2 {
     const size = pre.getSize(new THREE.Vector3());
     if (size.y > 0) root.scale.setScalar(1.8 / size.y);
     const post = new THREE.Box3().setFromObject(root);
-    root.position.set(-0.55, -post.min.y, 0.6); // beside + slightly behind the ball, planted to strike
+    const groundY = -post.min.y;
+    this.startPos.y = groundY;
+    this.plantPos.y = groundY;
+    root.position.copy(this.startPos);
     root.rotation.y = Math.PI; // face the goal (-Z)
 
     const kitMat = createToonMaterial({ color: PAL.kitPrimary, rimColor: PAL.rim, rimStrength: 1.0 });
@@ -231,6 +272,9 @@ export class SceneV2 {
     }
     this.scene.add(root);
     this.kicker = root;
+    // GLTFLoader sanitizes dotted bone names ("DEF-thigh.R" -> "DEF-thighR").
+    this.legThighR = root.getObjectByName("DEF-thighR") ?? root.getObjectByName("DEF-thigh.R") ?? null;
+    this.legShinR = root.getObjectByName("DEF-shinR") ?? root.getObjectByName("DEF-shin.R") ?? null;
 
     this.mixer = new THREE.AnimationMixer(root);
     for (const clip of gltf.animations) {
@@ -246,21 +290,126 @@ export class SceneV2 {
     for (const [n, a] of this.clips) if (n !== name) a.fadeOut(fade);
   }
 
+  /** Start a strike: run up to the ball, swing, launch. Aims at a point in the goal mouth. */
+  kick() {
+    if (this.phase !== "idle" || !this.kicker) return;
+    this.phase = "runup";
+    this.phaseT = 0;
+    this.aimX = (Math.random() * 2 - 1) * 2.6;
+    this.aimY = 0.5 + Math.random() * 1.4;
+    this.play("Rig|Jog_Fwd_Loop", 0.15);
+  }
+
   update(dt: number) {
-    this.mixer?.update(dt);
+    // Auto-loop in the dev view so the strike is visible; the real flow will call kick() instead.
+    this.autoTimer += dt;
+    if (this.phase === "idle" && this.autoTimer > 2.8) {
+      this.autoTimer = 0;
+      this.kick();
+    }
+    if (this.slowmoT > 0) {
+      this.slowmoT -= dt;
+      if (this.slowmoT <= 0) this.timeScaleTarget = 1;
+    }
+    this.timeScale += (this.timeScaleTarget - this.timeScale) * Math.min(1, dt * 6);
+    const g = dt * this.timeScale; // game time (slows during the strike)
+    this.mixer?.update(g);
+    this.advance(g);
+    this.flightStep(g);
+    this.postfx?.update(dt); // post fx keep real time so they never stutter
+  }
+
+  private advance(dt: number) {
+    if (this.phase === "idle" || !this.kicker) return;
+    this.phaseT += dt;
+    if (this.phase === "runup") {
+      const t = Math.min(1, this.phaseT / RUNUP);
+      this.kicker.position.lerpVectors(this.startPos, this.plantPos, easeInOut(t));
+      if (t >= 1) {
+        this.phase = "strike";
+        this.phaseT = 0;
+        this.play("Rig|Idle_Loop", 0.06); // upright base pose; the leg swing is layered on top
+      }
+    } else if (this.phase === "strike") {
+      const t = Math.min(1, this.phaseT / STRIKE);
+      this.swingLeg(t);
+      if (this.phaseT >= CONTACT && !this.ballFlying && this.ballT === 0) this.onContact();
+      if (t >= 1) {
+        this.phase = "recover";
+        this.phaseT = 0;
+      }
+    } else if (this.phase === "recover") {
+      if (this.phaseT >= RECOVER) {
+        this.phase = "idle";
+        this.phaseT = 0;
+        this.autoTimer = 0;
+        this.kicker.position.copy(this.startPos);
+        this.ball?.position.copy(this.ballHome);
+        this.ballFlying = false;
+        this.ballT = 0;
+        this.trail?.update(this.ballHome, false);
+      }
+    }
+  }
+
+  /** Layer a grounded right-leg swing on top of the base pose: windup back, drive through contact. */
+  private swingLeg(t: number) {
+    if (!this.legThighR) return;
+    const thigh = THREE.MathUtils.lerp(0.55, -1.2, smooth(t));
+    this.legThighR.quaternion.multiply(this.qTmp.setFromAxisAngle(this.axisX, thigh));
+    if (this.legShinR) {
+      const shin = THREE.MathUtils.lerp(-1.15, 0.05, smooth(Math.min(1, t * 1.35)));
+      this.legShinR.quaternion.multiply(this.qTmp.setFromAxisAngle(this.axisX, shin));
+    }
+  }
+
+  private onContact() {
+    if (!this.ball) return;
+    this.ballFlying = true;
+    this.ballT = 0.0001;
+    this.ballFrom.copy(this.ball.position);
+    this.ballTo.set(this.aimX, this.aimY, GOAL_Z + 0.3);
+    this.timeScaleTarget = 0.32; // slow-mo burst on contact
+    this.slowmoT = 0.5;
+    this.postfx?.triggerImpact();
+    this.postfx?.setSpeedLines(1);
+  }
+
+  private flightStep(dt: number) {
+    if (!this.ballFlying || !this.ball) return;
+    this.ballT += dt / FLIGHT;
+    const t = Math.min(1, this.ballT);
+    // Quadratic arc from boot to the aimed point.
+    const mid = this.ballFrom.clone().lerp(this.ballTo, 0.5);
+    mid.y += 1.5;
+    const a = this.ballFrom.clone().lerp(mid, t);
+    const b = mid.lerp(this.ballTo, t);
+    this.ball.position.lerpVectors(a, b, t);
+    this.ball.rotation.x -= dt * 14;
+    this.trail?.update(this.ball.position, true, dt);
+    this.postfx?.setSpeedLines(Math.max(0, 1 - t * 1.6));
+    if (t >= 1) {
+      this.ballFlying = false;
+      this.ballT = 0;
+      this.trail?.update(this.ball.position, false, dt); // TODO net ripple + goal/save result
+    }
   }
 
   render() {
-    this.renderer.render(this.scene, this.camera);
+    if (this.postfx) this.postfx.render();
+    else this.renderer.render(this.scene, this.camera);
   }
 
   resize(w: number, h: number) {
     this.renderer.setSize(w, h, false);
     this.camera.aspect = w / h;
     this.camera.updateProjectionMatrix();
+    this.postfx?.resize(w, h);
   }
 
   dispose() {
+    this.postfx?.dispose();
+    this.trail?.dispose();
     this.disposables.forEach((d) => d.dispose());
     this.disposables = [];
     this.renderer.dispose();
