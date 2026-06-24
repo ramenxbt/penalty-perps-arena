@@ -64,10 +64,10 @@ export function StadiumTuner() {
         <p>Enter a match to load the stadium, then drag.</p>
       ) : (
         <>
-          {row("Scale", "s", 0.05, 1.5, 0.005)}
-          {row("X (left/right)", "x", -50, 50, 0.5)}
-          {row("Y (up/down)", "y", -25, 25, 0.5)}
-          {row("Z (fwd/back)", "z", -50, 50, 0.5)}
+          {row("Scale", "s", 0.05, 4, 0.005)}
+          {row("X (left/right)", "x", -150, 150, 0.5)}
+          {row("Y (up/down)", "y", -60, 60, 0.25)}
+          {row("Z (fwd/back)", "z", -150, 150, 0.5)}
           {row("Rotate", "ry", -3.15, 3.15, 0.02)}
           <code>
             scale={t.s.toFixed(3)} pos=({t.x.toFixed(1)}, {t.y.toFixed(2)}, {t.z.toFixed(1)}) rotY={t.ry.toFixed(3)}

@@ -19,15 +19,17 @@ const MODEL_URL = "models/stadium.glb";
 
 /* ---- Tunable transform. Dial these once it is on screen. ---- */
 // Auto-fit target: the stadium's longest horizontal footprint is scaled to this many world
-// units. Our action spans roughly +/-18, the pitch plane is ~46. A value here that wraps the
-// pitch without dwarfing it is the goal; raise to push the stands out, lower to pull them in.
-const TARGET_SPAN = 70;
+// units. The game wants a HUGE bowl with the action as a small focal spot in the middle, so
+// this defaults large; the on-screen tuner (?tune) is the real way to dial it.
+const TARGET_SPAN = 120;
 // Absolute scale override. Leave 0 to use the auto-fit above; set a number to force a scale.
 const SCALE_OVERRIDE = 0;
 // Center offset of the whole stadium (after auto-centering on its own bbox).
 const OFFSET = new THREE.Vector3(0, 0, -4);
-// Lift/lower onto the pitch (its base is sat on y=0 first; nudge if it z-fights our pitch).
-const Y_NUDGE = -0.02;
+// Model-space height of the playing surface. We seat THIS at y=0 (just below our pitch) so
+// the game plays ON the stadium field. Sitting the model's lowest point (foundations) on the
+// ground instead would push the field up and the game would appear underneath it.
+const FIELD_Y = -0.05;
 // Yaw so the open end / main stand faces the camera (radians).
 const ROT_Y = 0;
 
@@ -54,7 +56,9 @@ export class Stadium {
         const span = Math.max(size.x, size.z) || 1;
         const scale = SCALE_OVERRIDE > 0 ? SCALE_OVERRIDE : TARGET_SPAN / span;
 
-        model.position.set(-center.x, -box.min.y, -center.z);
+        // Recenter the footprint on the origin, but seat the FIELD at y=0 (not the foundation)
+        // so the game plays on the pitch rather than under the stadium.
+        model.position.set(-center.x, FIELD_Y, -center.z);
 
         // The stadium reads as a far backdrop: no shadow casting (cost + it would smear over
         // the pitch), receive light so our floodlights/mood grade it.
@@ -71,7 +75,6 @@ export class Stadium {
         root.add(model);
         root.scale.setScalar(scale);
         root.position.copy(OFFSET);
-        root.position.y += Y_NUDGE;
         root.rotation.y = ROT_Y;
         scene.add(root);
         this.root = root;
