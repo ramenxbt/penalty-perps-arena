@@ -85,6 +85,51 @@ void main() {
 }
 `;
 
+// Scarves/flags held up in the crowd: billboards on the same wave, but they flutter (a ripple
+// along their width) and lift higher on the wave crest, like fans hoisting them when they cheer.
+const FLAG_VERT = /* glsl */ `
+attribute vec3 aTint;
+attribute float aPhase;
+attribute float aWave;
+attribute float aScale;
+uniform float uTime;
+uniform float uExcite;
+varying vec2 vUv;
+varying vec3 vTint;
+
+void main() {
+  vec3 center = vec3(instanceMatrix[3][0], instanceMatrix[3][1], instanceMatrix[3][2]);
+  float front = fract(uTime * (0.07 + uExcite * 0.12));
+  float dist = abs(aWave - front);
+  dist = min(dist, 1.0 - dist);
+  float wave = smoothstep(0.10, 0.0, dist) * (0.18 + uExcite * 0.55);
+  center.y += wave + sin(uTime * 1.6 + aPhase) * 0.02;
+
+  vec3 toCam = cameraPosition - center;
+  toCam.y = 0.0;
+  toCam = normalize(toCam);
+  vec3 right = normalize(cross(vec3(0.0, 1.0, 0.0), toCam));
+
+  float flutter = sin(uv.x * 9.4 + uTime * 5.0 + aPhase) * (0.04 + uExcite * 0.06) * (0.25 + uv.x * 0.75);
+  vec3 worldPos = center + right * (position.x * aScale) + vec3(0.0, 1.0, 0.0) * (position.y * aScale + flutter) + toCam * (flutter * 0.6);
+  gl_Position = projectionMatrix * viewMatrix * vec4(worldPos, 1.0);
+  vUv = uv;
+  vTint = aTint;
+}
+`;
+
+const FLAG_FRAG = /* glsl */ `
+uniform sampler2D uMap;
+varying vec2 vUv;
+varying vec3 vTint;
+
+void main() {
+  vec4 t = texture2D(uMap, vUv);
+  if (t.a < 0.4) discard;
+  gl_FragColor = vec4(t.rgb * vTint, 1.0);
+}
+`;
+
 /**
  * The stadium bowl: a U of raked stands around the goal end (the camera looks from +Z toward
  * the goal at -Z, so the near sideline is off-camera). Both the solid stand geometry and the
@@ -121,6 +166,9 @@ export class Environment {
   private crowd: THREE.InstancedMesh | null = null;
   private crowdMat: THREE.ShaderMaterial | null = null;
   private crowdAtlas: THREE.CanvasTexture | null = null;
+  private crowdFlags: THREE.InstancedMesh | null = null;
+  private crowdFlagsMat: THREE.ShaderMaterial | null = null;
+  private scarfTex: THREE.CanvasTexture | null = null;
   private excitement = 0;
   private excitementTarget = 0;
   private adTexture: THREE.CanvasTexture | null = null;
@@ -137,6 +185,7 @@ export class Environment {
     this.addAdBoards(scene);
     this.addStands(scene, quality);
     this.addCrowd(scene, quality);
+    this.addCrowdFlags(scene, quality);
     this.addRoofs(scene, quality);
     this.addCameraFlashes(scene, quality);
     this.addBanners(scene, quality);
@@ -449,6 +498,109 @@ export class Environment {
     this.crowdMat = mat;
   }
 
+  /** A striped scarf texture (white + stripes + end fringes) that tints into any team color. */
+  private makeScarfTexture(): THREE.CanvasTexture {
+    if (this.scarfTex) return this.scarfTex;
+    const cv = document.createElement("canvas");
+    cv.width = 128;
+    cv.height = 56;
+    const ctx = cv.getContext("2d");
+    if (ctx) {
+      const pad = 8;
+      ctx.fillStyle = "#f2f4f6";
+      ctx.beginPath();
+      ctx.roundRect(pad, 14, cv.width - 2 * pad, 28, 6);
+      ctx.fill();
+      ctx.fillStyle = "#c6ccd2"; // two stripes for a knit-scarf read
+      ctx.fillRect(pad, 19, cv.width - 2 * pad, 5);
+      ctx.fillRect(pad, 32, cv.width - 2 * pad, 5);
+      ctx.fillStyle = "#f2f4f6"; // end fringes
+      for (let i = 0; i < 4; i += 1) {
+        ctx.fillRect(pad - 5, 16 + i * 7, 5, 4);
+        ctx.fillRect(cv.width - pad, 16 + i * 7, 5, 4);
+      }
+    }
+    const tex = this.track(new THREE.CanvasTexture(cv));
+    tex.colorSpace = THREE.SRGBColorSpace;
+    tex.flipY = false;
+    this.scarfTex = tex;
+    return tex;
+  }
+
+  /** Scarves hoisted in the stands: a sparse billboard layer over the crowd, team-tinted + fluttering. */
+  private addCrowdFlags(scene: THREE.Scene, quality: QualitySettings) {
+    if (quality.tier === "low") return;
+    const rows = this.bowlRows(quality);
+    const eRise = END_RISE / rows;
+    const eDepth = END_DEPTH / rows;
+    const sRise = SIDE_RISE / rows;
+    const sDepth = SIDE_DEPTH / rows;
+    const endN = quality.tier === "high" ? 7 : 4;
+    const sideN = quality.tier === "high" ? 3 : 2;
+
+    const seats: { x: number; y: number; z: number }[] = [];
+    for (let r = 0; r < rows; r += 1) {
+      const yT = FRONT_Y + r * eRise + 0.92; // hoisted above head height
+      const zC = END_Z - r * eDepth - eDepth * 0.5;
+      for (let k = 0; k < endN; k += 1) {
+        const u = (k + Math.random()) / endN;
+        seats.push({ x: -END_HALF + 2 + u * (2 * END_HALF - 4), y: yT, z: zC });
+      }
+    }
+    for (const sign of [-1, 1]) {
+      for (let r = 0; r < rows; r += 1) {
+        const yT = FRONT_Y + r * sRise + 0.92;
+        const xC = sign * (SIDE_X + r * sDepth + sDepth * 0.5);
+        for (let k = 0; k < sideN; k += 1) {
+          const u = (k + Math.random()) / sideN;
+          seats.push({ x: xC, y: yT, z: SIDE_ZF - 1 - u * (SIDE_ZF - SIDE_ZB - 2) });
+        }
+      }
+    }
+
+    const count = seats.length;
+    const geo = this.track(new THREE.PlaneGeometry(0.95, 0.42)); // landscape scarf
+    const mat = this.track(
+      new THREE.ShaderMaterial({
+        uniforms: { uMap: { value: this.makeScarfTexture() }, uTime: { value: 0 }, uExcite: { value: 0 } },
+        vertexShader: FLAG_VERT,
+        fragmentShader: FLAG_FRAG,
+      }),
+    );
+    const mesh = new THREE.InstancedMesh(geo, mat, count);
+    mesh.frustumCulled = false;
+    const aTint = new Float32Array(count * 3);
+    const aPhase = new Float32Array(count);
+    const aWave = new Float32Array(count);
+    const aScale = new Float32Array(count);
+    const m = new THREE.Matrix4();
+    const color = new THREE.Color();
+    const SCARF_HOME = 0x5a8fd6;
+    const SCARF_AWAY = 0xd8584a;
+    const SCARF_GOLD = 0xffce54;
+    seats.forEach((s, i) => {
+      m.makeTranslation(s.x, s.y, s.z);
+      mesh.setMatrixAt(i, m);
+      const roll = Math.random();
+      const hex = roll < 0.12 ? SCARF_GOLD : s.x < 0 ? SCARF_HOME : SCARF_AWAY;
+      color.set(hex).multiplyScalar(0.92 + Math.random() * 0.18);
+      aTint[i * 3] = color.r;
+      aTint[i * 3 + 1] = color.g;
+      aTint[i * 3 + 2] = color.b;
+      aPhase[i] = Math.random() * Math.PI * 2;
+      aWave[i] = Math.min(1, Math.max(0, (s.x + 24) / 48));
+      aScale[i] = 0.85 + Math.random() * 0.4;
+    });
+    geo.setAttribute("aTint", new THREE.InstancedBufferAttribute(aTint, 3));
+    geo.setAttribute("aPhase", new THREE.InstancedBufferAttribute(aPhase, 1));
+    geo.setAttribute("aWave", new THREE.InstancedBufferAttribute(aWave, 1));
+    geo.setAttribute("aScale", new THREE.InstancedBufferAttribute(aScale, 1));
+    mesh.instanceMatrix.needsUpdate = true;
+    scene.add(mesh);
+    this.crowdFlags = this.track(mesh);
+    this.crowdFlagsMat = mat;
+  }
+
   /** Four corner floodlight pylons: a tall slim mast, a lamp bank, and an additive bloom. Kept
    * tall + thin so the banks clear the roofs and frame the bowl corners without crowding. */
   private addFloodlights(scene: THREE.Scene) {
@@ -655,10 +807,14 @@ export class Environment {
       b.mesh.rotation.y = Math.sin(elapsed * 1.1 + b.phase) * (0.12 + ex * 0.12);
     }
 
-    // The crowd animates entirely in its shader; just feed it the clock + the energy.
+    // The crowd + scarves animate entirely in their shaders; just feed the clock + the energy.
     if (this.crowdMat) {
       this.crowdMat.uniforms.uTime.value = elapsed;
       this.crowdMat.uniforms.uExcite.value = ex;
+    }
+    if (this.crowdFlagsMat) {
+      this.crowdFlagsMat.uniforms.uTime.value = elapsed;
+      this.crowdFlagsMat.uniforms.uExcite.value = ex;
     }
   }
 
@@ -668,6 +824,9 @@ export class Environment {
     this.crowd = null;
     this.crowdMat = null;
     this.crowdAtlas = null;
+    this.crowdFlags = null;
+    this.crowdFlagsMat = null;
+    this.scarfTex = null;
     this.flashes = [];
     this.banners = [];
     this.flagTextures = [];
