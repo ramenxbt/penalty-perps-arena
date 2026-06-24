@@ -129,10 +129,17 @@ export function createPitchMaterial(): THREE.MeshStandardMaterial {
         "#include <color_fragment>",
         `#include <color_fragment>
         {
-          float band = step(0.5, fract(vPitchUv.y * 7.0));
-          vec3 turf = mix(vec3(0.043, 0.149, 0.090), vec3(0.071, 0.196, 0.122), band);
+          // Crisp mowing stripes, richer + brighter than before (a lit pitch, not a dark slab).
+          float band = step(0.5, fract(vPitchUv.y * 9.0));
+          vec3 turfDark = vec3(0.055, 0.225, 0.100);
+          vec3 turfLight = vec3(0.105, 0.340, 0.150);
+          vec3 turf = mix(turfDark, turfLight, band);
+          // Subtle mottle so the grass reads as turf, not flat paint.
+          float n = fract(sin(dot(floor(vPitchUv * 240.0), vec2(12.9898, 78.233))) * 43758.5453);
+          turf *= 0.94 + n * 0.10;
+          // Gentle vignette toward the edges; the center stays bright.
           float d = distance(vPitchUv, vec2(0.5));
-          turf *= smoothstep(1.05, 0.15, d);
+          turf *= smoothstep(1.25, 0.22, d);
           diffuseColor.rgb = turf;
         }`,
       );

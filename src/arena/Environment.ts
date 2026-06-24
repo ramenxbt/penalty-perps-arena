@@ -52,20 +52,17 @@ export class Environment {
   private adTexture: THREE.CanvasTexture | null = null;
   private flashes: { sprite: THREE.Sprite; life: number }[] = [];
   private flashTimer = 0;
+  private banners: { mesh: THREE.Mesh; phase: number }[] = [];
 
   constructor(scene: THREE.Scene, quality: QualitySettings) {
     this.addSky(scene);
     this.addPitch(scene);
     this.addFieldLines(scene);
+    this.addFloodlights(scene);
     this.addAdBoards(scene);
+    this.addCrowd(scene, quality);
     this.addCameraFlashes(scene, quality);
-    // Medium/high load the GLB stadium (the bowl + stands), so we drop our procedural crowd
-    // and floodlight pylons to put the whole game inside the real stadium without doubled
-    // stands. Low tier skips the GLB, so it keeps the cheap procedural crowd as a fallback.
-    if (quality.tier === "low") {
-      this.addFloodlights(scene);
-      this.addCrowd(scene, quality);
-    }
+    this.addBanners(scene, quality);
   }
 
   private track<T extends { dispose: () => void }>(item: T): T {
@@ -296,6 +293,38 @@ export class Environment {
     }
   }
 
+  /** Hanging team banners around the lower stands (the festive flags), with a gentle twist. */
+  private addBanners(scene: THREE.Scene, quality: QualitySettings) {
+    if (quality.tier === "low") return;
+    const COLORS = [0x2fd07a, 0x43c7c0, 0xffc53d, 0x4d6e8c, 0xc56a3a, 0xeaf2ff];
+    const geo = this.track(new THREE.PlaneGeometry(1.3, 3.4));
+    const count = quality.tier === "high" ? 14 : 9;
+    for (let i = 0; i < count; i += 1) {
+      const t = i / (count - 1);
+      const angle = Math.PI * (0.56 + t * 0.88); // wrap the bowl behind + around the goal
+      const radius = 16.5;
+      const y = 3.6;
+      const mat = this.track(
+        new THREE.MeshStandardMaterial({
+          color: COLORS[i % COLORS.length],
+          emissive: COLORS[i % COLORS.length],
+          emissiveIntensity: 0.18,
+          roughness: 0.65,
+          metalness: 0,
+          side: THREE.DoubleSide,
+        }),
+      );
+      // A facing pivot holds the banner upright toward the action; the banner twists within it.
+      const pivot = new THREE.Group();
+      pivot.position.set(Math.cos(angle) * radius, y, -6 + Math.sin(angle) * radius);
+      pivot.lookAt(0, y, -2);
+      const mesh = new THREE.Mesh(geo, mat);
+      pivot.add(mesh);
+      scene.add(pivot);
+      this.banners.push({ mesh, phase: Math.random() * Math.PI * 2 });
+    }
+  }
+
   /** Live trade energy, 0..1. Lifts crowd bob, wave speed, and reach. Smoothed in update. */
   setExcitement(value: number) {
     this.excitementTarget = Math.max(0, Math.min(1, value));
@@ -325,7 +354,12 @@ export class Environment {
       }
     }
 
-    // Crowd is only built on low tier (medium/high use the GLB stadium's stands).
+    // Banners twist gently, more lively when the trade is hot.
+    for (let i = 0; i < this.banners.length; i += 1) {
+      const b = this.banners[i];
+      b.mesh.rotation.y = Math.sin(elapsed * 1.1 + b.phase) * (0.12 + ex * 0.12);
+    }
+
     const torsos = this.torsos;
     const heads = this.heads;
     if (!torsos || !heads) return;
@@ -361,6 +395,7 @@ export class Environment {
     this.heads = null;
     this.fans = [];
     this.flashes = [];
+    this.banners = [];
     this.adTexture = null;
   }
 }

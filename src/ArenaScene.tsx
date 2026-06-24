@@ -17,7 +17,6 @@ import { Environment } from "./arena/Environment";
 import { Lighting } from "./arena/Lighting";
 import { detectQuality, downgrade, QualitySettings } from "./arena/quality";
 import { SceneManager } from "./arena/SceneManager";
-import { Stadium } from "./arena/Stadium";
 import { ScoreboardData } from "./arena/Scoreboard";
 import { resolveShooterResult } from "./game/outcome";
 import { RoundPhase, Shooter } from "./game/types";
@@ -47,7 +46,6 @@ export function ArenaScene({ phase, shooters, hud, mood }: ArenaSceneProps) {
     const rig = new CameraRig(1);
     const lighting = new Lighting(scene.scene, quality);
     const environment = new Environment(scene.scene, quality);
-    const stadium = new Stadium(scene.scene, quality);
     const arena = new Arena(scene.scene, quality, stateRef.current.shooters);
 
     const sizeToHost = () => {
@@ -108,7 +106,6 @@ export function ArenaScene({ phase, shooters, hud, mood }: ArenaSceneProps) {
       resizeObserver.disconnect();
       arena.dispose();
       environment.dispose();
-      stadium.dispose();
       lighting.dispose();
       scene.dispose();
     };
