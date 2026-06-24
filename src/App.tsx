@@ -244,7 +244,7 @@ export function App() {
   const pnlActive = trading || closeFailed;
   // Stadium mood: live PnL mapped to -1..1 (tens of percent fills the bar). Drives the
   // crowd, lighting, embers, camera (in the 3D scene) and the screen-edge vignette below.
-  const mood = pnlActive ? Math.max(-1, Math.min(1, game.pnlPct / 30)) : 0;
+  const mood = pnlActive ? Math.max(-1, Math.min(1, game.pnlPct / 12)) : 0;
   const priceDeltaPrefix = game.derived.priceDelta >= 0 ? "+" : "-";
   const showOutcome = game.phase === "settled" && Boolean(game.outcome);
   const outcomeResult = game.outcome ? resolveOutcomeResult(game.outcome) : null;
@@ -519,7 +519,7 @@ export function App() {
             </div>
             <span className={game.derived.priceDelta >= 0 ? "price up" : "price down"}>
               {priceDeltaPrefix}
-              {formatMarketPrice(Math.abs(game.derived.priceDelta), game.marketAsset)}
+              {((Math.abs(game.derived.priceDelta) / Math.max(0.0001, game.derived.price)) * 100).toFixed(2)}%
             </span>
           </div>
 

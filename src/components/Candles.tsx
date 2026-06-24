@@ -6,10 +6,10 @@ type Candle = { open: number; high: number; low: number; close: number; start: n
 type ChartSize = { width: number; height: number };
 
 const CHART_HEIGHT = 220;
-/** Fixed wall-clock candle interval. The user asked for ~15-second OHLC candles. */
-const BUCKET_MS = 15000;
-/** How many fat candles to keep on screen (latest is the live, still-forming one). */
-const VISIBLE_CANDLES = 14;
+/** Fixed wall-clock candle interval. Short enough that each candle reads cleanly. */
+const BUCKET_MS = 3000;
+/** How many candles to keep on screen (latest is the live, still-forming one). */
+const VISIBLE_CANDLES = 24;
 const PRICE_LABEL_GUTTER = 58;
 
 const UP = "#2fd07a";

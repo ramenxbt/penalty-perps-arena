@@ -26,10 +26,10 @@ export const RULES = {
    * near-hopeless shot; a real loss earns nothing. The server must mirror these thresholds.
    */
   tiers: [
-    { minPnl: 40, shots: 3, openness: 0.9 },
-    { minPnl: 15, shots: 2, openness: 0.7 },
-    { minPnl: 4, shots: 1, openness: 0.5 },
-    { minPnl: -15, shots: 1, openness: 0.15 },
+    { minPnl: 12, shots: 3, openness: 0.9 },
+    { minPnl: 5, shots: 2, openness: 0.7 },
+    { minPnl: 1.5, shots: 1, openness: 0.5 },
+    { minPnl: -6, shots: 1, openness: 0.15 },
   ] as const,
 } as const;
 
@@ -40,7 +40,7 @@ export const RULES = {
  * timing the close is dramatic. PnL is taken on this arena series, so the tiers above are in
  * whole-percent terms. See useMarketFeed and nextArenaPrice.
  */
-export const GAME_VOL_PCT = 0.09;
+export const GAME_VOL_PCT = 0.035;
 /** How fast the arena price ticks (ms). */
 export const ARENA_TICK_MS = 500;
 /**
@@ -48,7 +48,7 @@ export const ARENA_TICK_MS = 500;
  * low so the walk can wander tens (sometimes hundreds) of percent from the anchor before the
  * mean reversion reels it back, instead of hugging the live price.
  */
-export const ARENA_TETHER = 0.02;
+export const ARENA_TETHER = 0.03;
 
 const TIER_EPSILON = 1e-9;
 
@@ -95,7 +95,7 @@ export const PROFIT_TO_SHOTS_LINE = SHOT_TIERS.map(
  * The downside teaching line, derived from concededFor's thresholds. Names the loss that first
  * lets the keeper score on you so the warning matches the math.
  */
-const FIRST_CONCEDE_PNL = 10;
+const FIRST_CONCEDE_PNL = 6;
 export const CONCEDE_WARNING_LINE = `A big loss (past -${FIRST_CONCEDE_PNL}%) lets the keeper score on you and costs points.`;
 
 /** Position 0-1 of a PnL value on the power-meter scale. */
@@ -174,9 +174,9 @@ export function resolveShots(pnlPct: number): { shots: number; openness: number 
  * points and dropping you on the ladder. Tunable; the server must mirror these thresholds.
  */
 export function concededFor(pnlPct: number): number {
-  if (pnlPct < -45) return 3; // blowout
-  if (pnlPct < -25) return 2;
-  if (pnlPct < -10) return 1;
+  if (pnlPct < -25) return 3; // blowout
+  if (pnlPct < -15) return 2;
+  if (pnlPct < -6) return 1;
   return 0;
 }
 
@@ -196,9 +196,9 @@ export function rollGoals(shots: number, openness: number, rng: () => number = M
 
 export function roundPoints(goals: number, pnlPct: number, streak: number): number {
   const goalPoints = goals * RULES.basePointsPerGoal;
-  // pnlPct is now whole-percent (tens of %), so a smaller multiplier keeps the profit bonus
-  // in the same ballpark as goal points instead of dwarfing them.
-  const profitBonus = Math.max(0, Math.round(pnlPct * 5));
+  // pnlPct is whole-percent (now single-to-low-double digits), so this multiplier keeps the
+  // profit bonus in the same ballpark as goal points instead of dwarfing them.
+  const profitBonus = Math.max(0, Math.round(pnlPct * 12));
   // Conceding costs you: each goal against subtracts a goal's worth of points, so a bad
   // cup can go negative and drop you on the ladder. Not floored at 0 here on purpose;
   // cumulative score is floored where it is applied.

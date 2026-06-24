@@ -215,8 +215,8 @@ export class LocalGameApi implements GameApi {
   private simulateCoShooters(): Shooter[] {
     const aiRows = this.rows.filter((row) => row.isAi).slice(0, MAX_CO_SHOOTERS);
     return aiRows.map((row) => {
-      // Match the lively arena scale (tens of percent), so AI earn shots and concede too.
-      const pnlPct = Math.random() * 70 - 26; // roughly -26% .. +44%
+      // Match the lively arena scale, so AI earn shots and concede too.
+      const pnlPct = Math.random() * 24 - 9; // roughly -9% .. +15%
       const { shots, openness } = resolveShots(pnlPct);
       const goals = rollGoals(shots, openness);
       row.score = Math.max(0, row.score + roundPoints(goals, pnlPct, row.streak));
