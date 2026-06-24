@@ -40,6 +40,54 @@ type Fan = {
 
 const BOWL_SPAN = 10; // wave travels across t in [0..BOWL_SPAN]
 
+/**
+ * The stadium bowl: a U of raked stands around the goal end (the camera looks from +Z toward
+ * the goal at -Z, so the near sideline is off-camera). Both the solid stand geometry and the
+ * seated crowd are derived from these numbers, so every fan sits ON a deck instead of floating.
+ */
+const END_HALF = 21; // half-width of the goal-end stand
+const END_Z = -13; // z of its front wall (the goal is at z = -8.6)
+const END_DEPTH = 10; // how far back the deck rakes
+const END_RISE = 16; // how high the back row climbs (steep = imposing wall of crowd)
+const SIDE_X = 12.5; // x of each sideline front wall
+const SIDE_DEPTH = 9;
+const SIDE_RISE = 13;
+const SIDE_ZF = 7; // sideline front edge (near the camera)
+const SIDE_ZB = -22; // sideline back edge (past the goal)
+const FRONT_Y = 1.6; // height of the front (first) seating row (also the front wall top)
+
+/** A seat position on the goal-end deck. u: 0..1 across the width, v: 0..1 up the rake. */
+function endSeat(u: number, v: number): THREE.Vector3 {
+  return new THREE.Vector3(
+    -END_HALF + 1.4 + u * (2 * END_HALF - 2.8),
+    FRONT_Y + 0.25 + v * END_RISE,
+    END_Z - 1 - v * (END_DEPTH - 1.6),
+  );
+}
+
+/** A seat on a sideline deck. sign: -1 left / +1 right, u: along z, v: up the rake. */
+function sideSeat(sign: number, u: number, v: number): THREE.Vector3 {
+  return new THREE.Vector3(
+    sign * (SIDE_X + 1 + v * (SIDE_DEPTH - 1.6)),
+    FRONT_Y + 0.15 + v * SIDE_RISE,
+    SIDE_ZF - 1 - u * (SIDE_ZF - SIDE_ZB - 2),
+  );
+}
+
+/** A flat 4-corner surface (two triangles), wound a -> b -> c -> d. */
+function quadGeometry(a: THREE.Vector3, b: THREE.Vector3, c: THREE.Vector3, d: THREE.Vector3): THREE.BufferGeometry {
+  const g = new THREE.BufferGeometry();
+  g.setAttribute(
+    "position",
+    new THREE.Float32BufferAttribute(
+      [a.x, a.y, a.z, b.x, b.y, b.z, c.x, c.y, c.z, a.x, a.y, a.z, c.x, c.y, c.z, d.x, d.y, d.z],
+      3,
+    ),
+  );
+  g.computeVertexNormals();
+  return g;
+}
+
 export class Environment {
   private disposables: Array<{ dispose: () => void }> = [];
   private torsos: THREE.InstancedMesh | null = null;
@@ -61,6 +109,7 @@ export class Environment {
     this.addFieldLines(scene);
     this.addFloodlights(scene);
     this.addAdBoards(scene);
+    this.addStands(scene);
     this.addCrowd(scene, quality);
     this.addCameraFlashes(scene, quality);
     this.addBanners(scene, quality);
@@ -112,27 +161,79 @@ export class Environment {
     return Math.sin(x * 0.45) * 0.6 + Math.cos(z * 0.5 + 1.3) * 0.4;
   }
 
-  private addCrowd(scene: THREE.Scene, quality: QualitySettings) {
-    // Seat anchors: a tiered arc wrapping behind the goal + steep side rows for width.
-    const seats: { x: number; y: number; z: number; t: number; coord: number; side: boolean }[] = [];
-    const arcCount = quality.seatsPerRing;
+  /** The solid raked stands: a concrete deck + a pitch-level front wall on each of the three sides. */
+  private addStands(scene: THREE.Scene) {
+    const V = THREE.Vector3;
+    // Mid concrete with a small emissive floor so the bowl never reads as a black void, plus a
+    // darker front wall. Both are double-sided so winding never matters.
+    const deckMat = this.track(
+      new THREE.MeshStandardMaterial({
+        color: 0x5b636c,
+        roughness: 0.95,
+        metalness: 0,
+        emissive: 0x20262c,
+        emissiveIntensity: 1,
+        side: THREE.DoubleSide,
+      }),
+    );
+    const wallMat = this.track(
+      new THREE.MeshStandardMaterial({ color: 0x2a2f35, roughness: 0.9, metalness: 0, side: THREE.DoubleSide }),
+    );
 
-    for (let ring = 0; ring < quality.seatRings; ring += 1) {
-      const radius = 18 + ring * 1.6;
-      const y = 1.4 + ring * 1.25;
-      for (let i = 0; i < arcCount; i += 1) {
-        const t = i / (arcCount - 1);
-        const angle = Math.PI * (0.58 + t * 0.84); // wrap around the far end
-        seats.push({ x: Math.cos(angle) * radius, y, z: -6 + Math.sin(angle) * radius, t, coord: t * BOWL_SPAN, side: false });
+    // Goal-end stand: raked deck + front wall.
+    const elf = new V(-END_HALF, FRONT_Y, END_Z);
+    const erf = new V(END_HALF, FRONT_Y, END_Z);
+    const erb = new V(END_HALF, FRONT_Y + END_RISE, END_Z - END_DEPTH);
+    const elb = new V(-END_HALF, FRONT_Y + END_RISE, END_Z - END_DEPTH);
+    scene.add(new THREE.Mesh(this.track(quadGeometry(elf, erf, erb, elb)), deckMat));
+    scene.add(
+      new THREE.Mesh(this.track(quadGeometry(new V(-END_HALF, 0, END_Z), new V(END_HALF, 0, END_Z), erf, elf)), wallMat),
+    );
+
+    // Two sideline stands (mirror across x).
+    for (const sign of [-1, 1]) {
+      const ff = new V(sign * SIDE_X, FRONT_Y, SIDE_ZF);
+      const fb = new V(sign * SIDE_X, FRONT_Y, SIDE_ZB);
+      const bb = new V(sign * (SIDE_X + SIDE_DEPTH), FRONT_Y + SIDE_RISE, SIDE_ZB);
+      const bf = new V(sign * (SIDE_X + SIDE_DEPTH), FRONT_Y + SIDE_RISE, SIDE_ZF);
+      scene.add(new THREE.Mesh(this.track(quadGeometry(ff, fb, bb, bf)), deckMat));
+      scene.add(
+        new THREE.Mesh(
+          this.track(quadGeometry(new V(sign * SIDE_X, 0, SIDE_ZF), new V(sign * SIDE_X, 0, SIDE_ZB), fb, ff)),
+          wallMat,
+        ),
+      );
+    }
+  }
+
+  private addCrowd(scene: THREE.Scene, quality: QualitySettings) {
+    // Seats are sampled directly on the three decks, so every fan sits ON a stand.
+    const seats: { x: number; y: number; z: number; t: number; coord: number; side: boolean }[] = [];
+    // Density is decoupled from the perf rings so the tall decks read as a PACKED crowd, not a
+    // thin band. One instanced draw call regardless of count; the per-frame cost is the animation
+    // loop, so mobile (low/medium) stays modest.
+    const rows = quality.tier === "high" ? 15 : quality.tier === "medium" ? 10 : 6;
+    const endCols = quality.tier === "high" ? 58 : quality.tier === "medium" ? 42 : 28;
+    const sideCols = quality.tier === "high" ? 28 : quality.tier === "medium" ? 20 : 12;
+
+    for (let r = 0; r < rows; r += 1) {
+      const v = rows > 1 ? r / (rows - 1) : 0;
+      for (let c = 0; c < endCols; c += 1) {
+        const u = endCols > 1 ? c / (endCols - 1) : 0.5;
+        const ju = ((Math.random() - 0.5) * 0.7) / endCols; // break the perfect grid
+        const p = endSeat(Math.min(1, Math.max(0, u + ju)), v);
+        seats.push({ x: p.x, y: p.y, z: p.z, t: u, coord: u * BOWL_SPAN, side: false });
       }
     }
-    for (let ring = 0; ring < quality.seatRings; ring += 1) {
-      const sideX = 15 + ring * 1.4;
-      const y = 1.2 + ring * 1.15;
-      for (let i = 0; i < Math.round(arcCount * 0.4); i += 1) {
-        const z = 2 - i * 1.1;
-        seats.push({ x: -sideX, y, z, t: 0, coord: -2, side: true });
-        seats.push({ x: sideX, y, z, t: 1, coord: BOWL_SPAN + 2, side: true });
+    for (const sign of [-1, 1]) {
+      for (let r = 0; r < rows; r += 1) {
+        const v = rows > 1 ? r / (rows - 1) : 0;
+        for (let c = 0; c < sideCols; c += 1) {
+          const u = sideCols > 1 ? c / (sideCols - 1) : 0.5;
+          const p = sideSeat(sign, u, v);
+          const coord = sign < 0 ? -2 - u * 4 : BOWL_SPAN + 2 + u * 4;
+          seats.push({ x: p.x, y: p.y, z: p.z, t: sign < 0 ? 0 : 1, coord, side: true });
+        }
       }
     }
 
@@ -153,7 +254,7 @@ export class Environment {
     const color = new THREE.Color();
 
     seats.forEach((s, i) => {
-      const scale = 0.82 + Math.random() * 0.5;
+      const scale = 0.95 + Math.random() * 0.5;
       this.fans.push({
         x: s.x,
         y: s.y,
@@ -172,14 +273,15 @@ export class Environment {
       heads.setMatrixAt(i, dummy.matrix);
 
       // Team split with a jittered seam; side rows stay neutral. Pockets cluster shades.
-      const home = s.side ? false : s.t < 0.5 + (Math.random() - 0.5) * 0.08;
+      // One coherent split across the whole bowl: home colors on the left half, away on the right.
+      const home = s.side ? s.x < 0 : s.t < 0.5 + (Math.random() - 0.5) * 0.08;
       const accentRoll = Math.random();
       let hex: number;
-      if (!s.side && accentRoll < 0.045) {
+      if (accentRoll < 0.05) {
         hex = home ? ACCENT_HOME : ACCENT_AWAY; // sparse lit pop
       } else {
         const p = this.pocket(s.x, s.z);
-        const neutral = s.side || Math.random() < 0.18;
+        const neutral = Math.random() < 0.16;
         const kit = neutral ? NEUTRAL : home ? HOME_KIT : AWAY_KIT;
         const shade = p > 0.3 ? kit[2] : p < -0.3 ? kit[1] : kit[0];
         hex = shade;
@@ -207,11 +309,12 @@ export class Environment {
     const poleMat = this.track(new THREE.MeshStandardMaterial({ color: 0x20262b, roughness: 0.6, metalness: 0.7 }));
     const bankGeo = this.track(new THREE.BoxGeometry(2.6, 1.3, 0.3));
     const bankMat = this.track(new THREE.MeshBasicMaterial({ color: 0xfdf6e3, toneMapped: false }));
+    // Outside the bowl corners so the masts never stab through the stands.
     const corners: [number, number][] = [
-      [-17, -16],
-      [17, -16],
-      [-19, 5],
-      [19, 5],
+      [-26, -22],
+      [26, -22],
+      [-26, 8],
+      [26, 8],
     ];
     for (const [x, z] of corners) {
       const pole = new THREE.Mesh(poleGeo, poleMat);
@@ -334,25 +437,33 @@ export class Environment {
     return this.flagTextures;
   }
 
-  /** National flags ringing the stand behind the goal (both sides), with a gentle wave. */
+  /** National flags on poles planted along the back rim of the goal-end stand, each waving. */
   private addBanners(scene: THREE.Scene, quality: QualitySettings) {
     if (quality.tier === "low") return;
     const flags = this.makeFlagTextures();
-    const geo = this.track(new THREE.PlaneGeometry(2.6, 1.6)); // landscape, like a real flag
-    const count = quality.tier === "high" ? 16 : 10;
+    const poleGeo = this.track(new THREE.CylinderGeometry(0.07, 0.07, 2.8, 6));
+    const poleMat = this.track(
+      new THREE.MeshStandardMaterial({ color: 0xd0d6dc, roughness: 0.5, metalness: 0.3, emissive: 0x2a2e33, emissiveIntensity: 1 }),
+    );
+    const flagGeo = this.track(new THREE.PlaneGeometry(2.6, 1.55)); // landscape, like a real flag
+    const count = quality.tier === "high" ? 14 : 9;
+    const rimY = FRONT_Y + END_RISE; // top of the goal-end deck
+    const rimZ = END_Z - END_DEPTH;
     for (let i = 0; i < count; i += 1) {
-      const t = count > 1 ? i / (count - 1) : 0.5;
-      const angle = Math.PI * (1.05 + t * 0.9); // semicircle BEHIND the goal, both sides
-      const radius = 16.5;
-      const y = 4;
+      const u = count > 1 ? i / (count - 1) : 0.5;
+      const x = -END_HALF + 1.6 + u * (2 * END_HALF - 3.2);
+      // The pole rises from the rim; the flag flies near its top, hard against the pole.
+      const pole = new THREE.Mesh(poleGeo, poleMat);
+      pole.position.set(x, rimY + 1.4, rimZ);
+      scene.add(pole);
+
       const mat = this.track(
         new THREE.MeshBasicMaterial({ map: flags[i % flags.length], toneMapped: false, side: THREE.DoubleSide }),
       );
-      // A facing pivot holds the flag toward the action; it waves within the pivot.
       const pivot = new THREE.Group();
-      pivot.position.set(Math.cos(angle) * radius, y, -6 + Math.sin(angle) * radius);
-      pivot.lookAt(0, y, -2);
-      const mesh = new THREE.Mesh(geo, mat);
+      pivot.position.set(x + 1.3, rimY + 2.1, rimZ);
+      pivot.lookAt(0, rimY + 2.1, -2);
+      const mesh = new THREE.Mesh(flagGeo, mat);
       pivot.add(mesh);
       scene.add(pivot);
       this.banners.push({ mesh, phase: Math.random() * Math.PI * 2 });
