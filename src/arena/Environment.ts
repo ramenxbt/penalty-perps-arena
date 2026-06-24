@@ -94,6 +94,7 @@ export class Environment {
     this.addAdBoards(scene);
     this.addStands(scene, quality);
     this.addCrowd(scene, quality);
+    this.addRoofs(scene, quality);
     this.addCameraFlashes(scene, quality);
     this.addBanners(scene, quality);
   }
@@ -200,6 +201,53 @@ export class Environment {
       const sWall: number[] = [];
       pushQuad(sWall, [sign * SIDE_X, 0, SIDE_ZF], [sign * SIDE_X, 0, SIDE_ZB], [sign * SIDE_X, FRONT_Y, SIDE_ZB], [sign * SIDE_X, FRONT_Y, SIDE_ZF]);
       scene.add(new THREE.Mesh(this.track(geoFromPositions(sWall)), wallMat));
+    }
+  }
+
+  /** Cantilevered roofs capping each stand, with a glowing LED leading edge over the crowd. */
+  private addRoofs(scene: THREE.Scene, quality: QualitySettings) {
+    if (quality.tier === "low") return;
+    const roofMat = this.track(
+      new THREE.MeshStandardMaterial({ color: 0x15191d, roughness: 0.7, metalness: 0.25, side: THREE.DoubleSide }),
+    );
+    const ledMat = this.track(new THREE.MeshBasicMaterial({ color: 0x8fe3ff, toneMapped: false }));
+    const BACK = 3.7; // roof height above the stand rim at the back (clears the flags)
+    const FRONT = 3.1; // height at the leading edge (tilts slightly down over the pitch)
+    const OVER = 5; // how far it cantilevers in over the crowd
+
+    // Goal-end roof.
+    const topY = FRONT_Y + END_RISE;
+    const backZ = END_Z - END_DEPTH;
+    const rp: number[] = [];
+    pushQuad(
+      rp,
+      [-END_HALF, topY + BACK, backZ],
+      [END_HALF, topY + BACK, backZ],
+      [END_HALF, topY + FRONT, backZ + OVER],
+      [-END_HALF, topY + FRONT, backZ + OVER],
+    );
+    scene.add(new THREE.Mesh(this.track(geoFromPositions(rp)), roofMat));
+    const endLed = new THREE.Mesh(this.track(new THREE.BoxGeometry(2 * END_HALF, 0.16, 0.16)), ledMat);
+    endLed.position.set(0, topY + FRONT, backZ + OVER);
+    scene.add(endLed);
+
+    // Sideline roofs (cantilever inward toward the pitch).
+    const sTopY = FRONT_Y + SIDE_RISE;
+    for (const sign of [-1, 1]) {
+      const backX = sign * (SIDE_X + SIDE_DEPTH);
+      const inX = sign * (SIDE_X + SIDE_DEPTH - OVER);
+      const sp: number[] = [];
+      pushQuad(
+        sp,
+        [backX, sTopY + BACK, SIDE_ZF],
+        [backX, sTopY + BACK, SIDE_ZB],
+        [inX, sTopY + FRONT, SIDE_ZB],
+        [inX, sTopY + FRONT, SIDE_ZF],
+      );
+      scene.add(new THREE.Mesh(this.track(geoFromPositions(sp)), roofMat));
+      const sLed = new THREE.Mesh(this.track(new THREE.BoxGeometry(0.16, 0.16, Math.abs(SIDE_ZF - SIDE_ZB))), ledMat);
+      sLed.position.set(inX, sTopY + FRONT, (SIDE_ZF + SIDE_ZB) / 2);
+      scene.add(sLed);
     }
   }
 
