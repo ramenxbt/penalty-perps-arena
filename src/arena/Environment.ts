@@ -19,14 +19,14 @@ import { createGlowSprite, createPitchMaterial, createSkyMaterial } from "./mate
 
 const AD_MESSAGES = "PENALTY PERPS    ·    TRADE THE CHART    ·    PROFIT EARNS YOUR SHOTS    ·    PAPER ONLY    ·    $PERP    ·    GLOBAL PENALTY CIRCUIT    ·    ";
 
-// Muted, structured kits. Deliberately darker + less saturated than the focal gold #ffc53d /
-// green #2fd07a so the stands stay background. Home = blue-steel, away = clay.
-const HOME_KIT = [0x3a5a78, 0x2f4860, 0x4d6e8c];
-const AWAY_KIT = [0x7a4038, 0x5e2f2a, 0x94544a];
-const NEUTRAL = [0x3a3c40, 0x4a4640, 0x52555a];
+// Team kits: bright enough to read clearly as a colorful crowd against the dark arena
+// (the fans are self-lit, so distance does not dim them). Home = blue, away = warm red.
+const HOME_KIT = [0x4f7fae, 0x3c648f, 0x74a3d4];
+const AWAY_KIT = [0xb35a48, 0x8f4236, 0xd1735f];
+const NEUTRAL = [0x767b82, 0x847a70, 0x8e9197];
 const ACCENT_HOME = 0x65d8ff; // sparse cyan pop on the home side
-const ACCENT_AWAY = 0xffb454; // sparse amber pop on the away side
-const HEAD_TONES = [0x6b6258, 0x5d6066]; // desaturated heads, darker than the shirts
+const ACCENT_AWAY = 0xffce54; // sparse gold pop on the away side
+const HEAD_TONES = [0xd0b08c, 0xc09a72]; // skin tones, kept visible
 
 type Fan = {
   x: number;
@@ -53,6 +53,7 @@ export class Environment {
   private flashes: { sprite: THREE.Sprite; life: number }[] = [];
   private flashTimer = 0;
   private banners: { mesh: THREE.Mesh; phase: number }[] = [];
+  private flagTextures: THREE.CanvasTexture[] = [];
 
   constructor(scene: THREE.Scene, quality: QualitySettings) {
     this.addSky(scene);
@@ -139,8 +140,9 @@ export class Environment {
     const torsoGeo = this.track(new THREE.CylinderGeometry(0.16, 0.26, 0.5, 6, 1));
     const headGeo = this.track(new THREE.SphereGeometry(0.12, 6, 5));
     headGeo.translate(0, 0.42, 0); // sit the head on the shoulders (shares the fan matrix)
-    const torsoMat = this.track(new THREE.MeshStandardMaterial({ roughness: 0.92, metalness: 0 }));
-    const headMat = this.track(new THREE.MeshStandardMaterial({ roughness: 0.95, metalness: 0 }));
+    // Self-lit (unlit) so the distant crowd never goes dark; instance colors show at full.
+    const torsoMat = this.track(new THREE.MeshBasicMaterial({ toneMapped: false }));
+    const headMat = this.track(new THREE.MeshBasicMaterial({ toneMapped: false }));
 
     const torsos = new THREE.InstancedMesh(torsoGeo, torsoMat, count);
     const heads = new THREE.InstancedMesh(headGeo, headMat, count);
@@ -182,11 +184,11 @@ export class Environment {
         const shade = p > 0.3 ? kit[2] : p < -0.3 ? kit[1] : kit[0];
         hex = shade;
       }
-      // Tier fade: lift toward dark as rows climb so the back melts into the sky.
-      const fade = 0.5 + Math.random() * 0.42;
+      // Keep the crowd bright and readable, with just a little per-fan variation.
+      const fade = 0.86 + Math.random() * 0.28;
       color.set(hex).multiplyScalar(fade);
       torsos.setColorAt(i, color);
-      color.set(HEAD_TONES[(Math.random() * HEAD_TONES.length) | 0]).multiplyScalar(0.7 + Math.random() * 0.3);
+      color.set(HEAD_TONES[(Math.random() * HEAD_TONES.length) | 0]).multiplyScalar(0.9 + Math.random() * 0.2);
       heads.setColorAt(i, color);
     });
 
@@ -293,28 +295,60 @@ export class Environment {
     }
   }
 
-  /** Hanging team banners around the lower stands (the festive flags), with a gentle twist. */
+  /** Build a set of national-style tricolor flag textures once, reused across banners. */
+  private makeFlagTextures(): THREE.CanvasTexture[] {
+    if (this.flagTextures.length) return this.flagTextures;
+    const FLAGS: { c: string[]; v: boolean; emblem?: boolean }[] = [
+      { c: ["#c8102e", "#ffffff", "#012169"], v: true },
+      { c: ["#009639", "#ffffff", "#ce1126"], v: true },
+      { c: ["#000000", "#dd0000", "#ffce00"], v: false },
+      { c: ["#ff9933", "#ffffff", "#138808"], v: true, emblem: true },
+      { c: ["#0055a4", "#ffffff", "#ef4135"], v: true },
+      { c: ["#aa151b", "#f1bf00", "#aa151b"], v: false },
+      { c: ["#fcd116", "#003580"], v: false },
+      { c: ["#006847", "#ffffff", "#ce1126"], v: true, emblem: true },
+    ];
+    for (const f of FLAGS) {
+      const cv = document.createElement("canvas");
+      cv.width = 96;
+      cv.height = 60;
+      const ctx = cv.getContext("2d");
+      if (ctx) {
+        const n = f.c.length;
+        for (let k = 0; k < n; k += 1) {
+          ctx.fillStyle = f.c[k];
+          if (f.v) ctx.fillRect(Math.floor((k * 96) / n), 0, Math.ceil(96 / n) + 1, 60);
+          else ctx.fillRect(0, Math.floor((k * 60) / n), 96, Math.ceil(60 / n) + 1);
+        }
+        if (f.emblem) {
+          ctx.fillStyle = "rgba(20,30,40,0.6)";
+          ctx.beginPath();
+          ctx.arc(48, 30, 11, 0, Math.PI * 2);
+          ctx.fill();
+        }
+      }
+      const tex = this.track(new THREE.CanvasTexture(cv));
+      tex.colorSpace = THREE.SRGBColorSpace;
+      this.flagTextures.push(tex);
+    }
+    return this.flagTextures;
+  }
+
+  /** National flags ringing the stand behind the goal (both sides), with a gentle wave. */
   private addBanners(scene: THREE.Scene, quality: QualitySettings) {
     if (quality.tier === "low") return;
-    const COLORS = [0x2fd07a, 0x43c7c0, 0xffc53d, 0x4d6e8c, 0xc56a3a, 0xeaf2ff];
-    const geo = this.track(new THREE.PlaneGeometry(1.3, 3.4));
-    const count = quality.tier === "high" ? 14 : 9;
+    const flags = this.makeFlagTextures();
+    const geo = this.track(new THREE.PlaneGeometry(2.6, 1.6)); // landscape, like a real flag
+    const count = quality.tier === "high" ? 16 : 10;
     for (let i = 0; i < count; i += 1) {
-      const t = i / (count - 1);
-      const angle = Math.PI * (0.56 + t * 0.88); // wrap the bowl behind + around the goal
+      const t = count > 1 ? i / (count - 1) : 0.5;
+      const angle = Math.PI * (1.05 + t * 0.9); // semicircle BEHIND the goal, both sides
       const radius = 16.5;
-      const y = 3.6;
+      const y = 4;
       const mat = this.track(
-        new THREE.MeshStandardMaterial({
-          color: COLORS[i % COLORS.length],
-          emissive: COLORS[i % COLORS.length],
-          emissiveIntensity: 0.18,
-          roughness: 0.65,
-          metalness: 0,
-          side: THREE.DoubleSide,
-        }),
+        new THREE.MeshBasicMaterial({ map: flags[i % flags.length], toneMapped: false, side: THREE.DoubleSide }),
       );
-      // A facing pivot holds the banner upright toward the action; the banner twists within it.
+      // A facing pivot holds the flag toward the action; it waves within the pivot.
       const pivot = new THREE.Group();
       pivot.position.set(Math.cos(angle) * radius, y, -6 + Math.sin(angle) * radius);
       pivot.lookAt(0, y, -2);
@@ -396,6 +430,7 @@ export class Environment {
     this.fans = [];
     this.flashes = [];
     this.banners = [];
+    this.flagTextures = [];
     this.adTexture = null;
   }
 }
