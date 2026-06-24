@@ -56,34 +56,17 @@ const SIDE_ZF = 7; // sideline front edge (near the camera)
 const SIDE_ZB = -22; // sideline back edge (past the goal)
 const FRONT_Y = 1.6; // height of the front (first) seating row (also the front wall top)
 
-/** A seat position on the goal-end deck. u: 0..1 across the width, v: 0..1 up the rake. */
-function endSeat(u: number, v: number): THREE.Vector3 {
-  return new THREE.Vector3(
-    -END_HALF + 1.4 + u * (2 * END_HALF - 2.8),
-    FRONT_Y + 0.25 + v * END_RISE,
-    END_Z - 1 - v * (END_DEPTH - 1.6),
-  );
+type V3 = [number, number, number];
+
+/** Push a flat quad (two triangles, wound a -> b -> c -> d) into a positions array. */
+function pushQuad(out: number[], a: V3, b: V3, c: V3, d: V3) {
+  out.push(a[0], a[1], a[2], b[0], b[1], b[2], c[0], c[1], c[2], a[0], a[1], a[2], c[0], c[1], c[2], d[0], d[1], d[2]);
 }
 
-/** A seat on a sideline deck. sign: -1 left / +1 right, u: along z, v: up the rake. */
-function sideSeat(sign: number, u: number, v: number): THREE.Vector3 {
-  return new THREE.Vector3(
-    sign * (SIDE_X + 1 + v * (SIDE_DEPTH - 1.6)),
-    FRONT_Y + 0.15 + v * SIDE_RISE,
-    SIDE_ZF - 1 - u * (SIDE_ZF - SIDE_ZB - 2),
-  );
-}
-
-/** A flat 4-corner surface (two triangles), wound a -> b -> c -> d. */
-function quadGeometry(a: THREE.Vector3, b: THREE.Vector3, c: THREE.Vector3, d: THREE.Vector3): THREE.BufferGeometry {
+/** Build a BufferGeometry from a flat positions array, with computed normals. */
+function geoFromPositions(out: number[]): THREE.BufferGeometry {
   const g = new THREE.BufferGeometry();
-  g.setAttribute(
-    "position",
-    new THREE.Float32BufferAttribute(
-      [a.x, a.y, a.z, b.x, b.y, b.z, c.x, c.y, c.z, a.x, a.y, a.z, c.x, c.y, c.z, d.x, d.y, d.z],
-      3,
-    ),
-  );
+  g.setAttribute("position", new THREE.Float32BufferAttribute(out, 3));
   g.computeVertexNormals();
   return g;
 }
@@ -109,7 +92,7 @@ export class Environment {
     this.addFieldLines(scene);
     this.addFloodlights(scene);
     this.addAdBoards(scene);
-    this.addStands(scene);
+    this.addStands(scene, quality);
     this.addCrowd(scene, quality);
     this.addCameraFlashes(scene, quality);
     this.addBanners(scene, quality);
@@ -161,17 +144,22 @@ export class Environment {
     return Math.sin(x * 0.45) * 0.6 + Math.cos(z * 0.5 + 1.3) * 0.4;
   }
 
-  /** The solid raked stands: a concrete deck + a pitch-level front wall on each of the three sides. */
-  private addStands(scene: THREE.Scene) {
-    const V = THREE.Vector3;
-    // Mid concrete with a small emissive floor so the bowl never reads as a black void, plus a
-    // darker front wall. Both are double-sided so winding never matters.
+  /** Number of seating tiers (also the crowd row count, so fans land on the treads). */
+  private bowlRows(quality: QualitySettings): number {
+    return quality.tier === "high" ? 15 : quality.tier === "medium" ? 10 : 6;
+  }
+
+  /** The stands: stepped concrete tiers (tread + riser per row) + a front wall, on three sides. */
+  private addStands(scene: THREE.Scene, quality: QualitySettings) {
+    const rows = this.bowlRows(quality);
+    // Concrete with a small emissive floor so the bowl is never a black void; the per-face
+    // normals on treads vs risers give the steps real light/shadow. Double-sided is forgiving.
     const deckMat = this.track(
       new THREE.MeshStandardMaterial({
         color: 0x5b636c,
         roughness: 0.95,
         metalness: 0,
-        emissive: 0x20262c,
+        emissive: 0x1c2126,
         emissiveIntensity: 1,
         side: THREE.DoubleSide,
       }),
@@ -180,59 +168,73 @@ export class Environment {
       new THREE.MeshStandardMaterial({ color: 0x2a2f35, roughness: 0.9, metalness: 0, side: THREE.DoubleSide }),
     );
 
-    // Goal-end stand: raked deck + front wall.
-    const elf = new V(-END_HALF, FRONT_Y, END_Z);
-    const erf = new V(END_HALF, FRONT_Y, END_Z);
-    const erb = new V(END_HALF, FRONT_Y + END_RISE, END_Z - END_DEPTH);
-    const elb = new V(-END_HALF, FRONT_Y + END_RISE, END_Z - END_DEPTH);
-    scene.add(new THREE.Mesh(this.track(quadGeometry(elf, erf, erb, elb)), deckMat));
-    scene.add(
-      new THREE.Mesh(this.track(quadGeometry(new V(-END_HALF, 0, END_Z), new V(END_HALF, 0, END_Z), erf, elf)), wallMat),
-    );
+    // Goal-end stand: stepped tiers (a horizontal tread + a vertical riser per row) + front wall.
+    const endPos: number[] = [];
+    const eRise = END_RISE / rows;
+    const eDepth = END_DEPTH / rows;
+    for (let r = 0; r < rows; r += 1) {
+      const yT = FRONT_Y + r * eRise;
+      const zF = END_Z - r * eDepth;
+      const zB = zF - eDepth;
+      pushQuad(endPos, [-END_HALF, yT, zF], [END_HALF, yT, zF], [END_HALF, yT, zB], [-END_HALF, yT, zB]); // tread
+      pushQuad(endPos, [-END_HALF, yT - eRise, zF], [END_HALF, yT - eRise, zF], [END_HALF, yT, zF], [-END_HALF, yT, zF]); // riser
+    }
+    scene.add(new THREE.Mesh(this.track(geoFromPositions(endPos)), deckMat));
+    const eWall: number[] = [];
+    pushQuad(eWall, [-END_HALF, 0, END_Z], [END_HALF, 0, END_Z], [END_HALF, FRONT_Y, END_Z], [-END_HALF, FRONT_Y, END_Z]);
+    scene.add(new THREE.Mesh(this.track(geoFromPositions(eWall)), wallMat));
 
-    // Two sideline stands (mirror across x).
+    // Sideline stands (mirror across x): stepped tiers rising outward.
+    const sRise = SIDE_RISE / rows;
+    const sDepth = SIDE_DEPTH / rows;
     for (const sign of [-1, 1]) {
-      const ff = new V(sign * SIDE_X, FRONT_Y, SIDE_ZF);
-      const fb = new V(sign * SIDE_X, FRONT_Y, SIDE_ZB);
-      const bb = new V(sign * (SIDE_X + SIDE_DEPTH), FRONT_Y + SIDE_RISE, SIDE_ZB);
-      const bf = new V(sign * (SIDE_X + SIDE_DEPTH), FRONT_Y + SIDE_RISE, SIDE_ZF);
-      scene.add(new THREE.Mesh(this.track(quadGeometry(ff, fb, bb, bf)), deckMat));
-      scene.add(
-        new THREE.Mesh(
-          this.track(quadGeometry(new V(sign * SIDE_X, 0, SIDE_ZF), new V(sign * SIDE_X, 0, SIDE_ZB), fb, ff)),
-          wallMat,
-        ),
-      );
+      const sp: number[] = [];
+      for (let r = 0; r < rows; r += 1) {
+        const yT = FRONT_Y + r * sRise;
+        const xF = sign * (SIDE_X + r * sDepth);
+        const xB = sign * (SIDE_X + (r + 1) * sDepth);
+        pushQuad(sp, [xF, yT, SIDE_ZF], [xB, yT, SIDE_ZF], [xB, yT, SIDE_ZB], [xF, yT, SIDE_ZB]); // tread
+        pushQuad(sp, [xF, yT - sRise, SIDE_ZF], [xF, yT - sRise, SIDE_ZB], [xF, yT, SIDE_ZB], [xF, yT, SIDE_ZF]); // riser
+      }
+      scene.add(new THREE.Mesh(this.track(geoFromPositions(sp)), deckMat));
+      const sWall: number[] = [];
+      pushQuad(sWall, [sign * SIDE_X, 0, SIDE_ZF], [sign * SIDE_X, 0, SIDE_ZB], [sign * SIDE_X, FRONT_Y, SIDE_ZB], [sign * SIDE_X, FRONT_Y, SIDE_ZF]);
+      scene.add(new THREE.Mesh(this.track(geoFromPositions(sWall)), wallMat));
     }
   }
 
   private addCrowd(scene: THREE.Scene, quality: QualitySettings) {
     // Seats are sampled directly on the three decks, so every fan sits ON a stand.
     const seats: { x: number; y: number; z: number; t: number; coord: number; side: boolean }[] = [];
-    // Density is decoupled from the perf rings so the tall decks read as a PACKED crowd, not a
-    // thin band. One instanced draw call regardless of count; the per-frame cost is the animation
-    // loop, so mobile (low/medium) stays modest.
-    const rows = quality.tier === "high" ? 15 : quality.tier === "medium" ? 10 : 6;
+    // One fan row per seating tier (same row count as the stands), so every fan sits on a tread.
+    // Density across is decoupled from the perf rings so the stand reads as a PACKED crowd.
+    const rows = this.bowlRows(quality);
     const endCols = quality.tier === "high" ? 58 : quality.tier === "medium" ? 42 : 28;
     const sideCols = quality.tier === "high" ? 28 : quality.tier === "medium" ? 20 : 12;
 
+    const eRise = END_RISE / rows;
+    const eDepth = END_DEPTH / rows;
     for (let r = 0; r < rows; r += 1) {
-      const v = rows > 1 ? r / (rows - 1) : 0;
+      const yT = FRONT_Y + r * eRise + 0.28; // torso base sits on the tread
+      const zC = END_Z - r * eDepth - eDepth * 0.5; // middle of the tread
       for (let c = 0; c < endCols; c += 1) {
         const u = endCols > 1 ? c / (endCols - 1) : 0.5;
         const ju = ((Math.random() - 0.5) * 0.7) / endCols; // break the perfect grid
-        const p = endSeat(Math.min(1, Math.max(0, u + ju)), v);
-        seats.push({ x: p.x, y: p.y, z: p.z, t: u, coord: u * BOWL_SPAN, side: false });
+        const x = -END_HALF + 1.4 + Math.min(1, Math.max(0, u + ju)) * (2 * END_HALF - 2.8);
+        seats.push({ x, y: yT, z: zC, t: u, coord: u * BOWL_SPAN, side: false });
       }
     }
+    const sRise = SIDE_RISE / rows;
+    const sDepth = SIDE_DEPTH / rows;
     for (const sign of [-1, 1]) {
       for (let r = 0; r < rows; r += 1) {
-        const v = rows > 1 ? r / (rows - 1) : 0;
+        const yT = FRONT_Y + r * sRise + 0.28;
+        const xC = sign * (SIDE_X + r * sDepth + sDepth * 0.5);
         for (let c = 0; c < sideCols; c += 1) {
           const u = sideCols > 1 ? c / (sideCols - 1) : 0.5;
-          const p = sideSeat(sign, u, v);
+          const z = SIDE_ZF - 1 - u * (SIDE_ZF - SIDE_ZB - 2);
           const coord = sign < 0 ? -2 - u * 4 : BOWL_SPAN + 2 + u * 4;
-          seats.push({ x: p.x, y: p.y, z: p.z, t: sign < 0 ? 0 : 1, coord, side: true });
+          seats.push({ x: xC, y: yT, z, t: sign < 0 ? 0 : 1, coord, side: true });
         }
       }
     }
