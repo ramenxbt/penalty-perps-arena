@@ -57,10 +57,15 @@ export class Environment {
     this.addSky(scene);
     this.addPitch(scene);
     this.addFieldLines(scene);
-    this.addFloodlights(scene);
     this.addAdBoards(scene);
-    this.addCrowd(scene, quality);
     this.addCameraFlashes(scene, quality);
+    // Medium/high load the GLB stadium (the bowl + stands), so we drop our procedural crowd
+    // and floodlight pylons to put the whole game inside the real stadium without doubled
+    // stands. Low tier skips the GLB, so it keeps the cheap procedural crowd as a fallback.
+    if (quality.tier === "low") {
+      this.addFloodlights(scene);
+      this.addCrowd(scene, quality);
+    }
   }
 
   private track<T extends { dispose: () => void }>(item: T): T {
@@ -298,10 +303,6 @@ export class Environment {
 
   /** Restless crowd: incoherent idle bob + lateral sway + a slow wave that rolls the bowl. */
   update(dt: number, elapsed: number) {
-    const torsos = this.torsos;
-    const heads = this.heads;
-    if (!torsos || !heads) return;
-
     this.excitement += (this.excitementTarget - this.excitement) * Math.min(1, dt * 3);
     const ex = this.excitement;
 
@@ -323,6 +324,11 @@ export class Environment {
         }
       }
     }
+
+    // Crowd is only built on low tier (medium/high use the GLB stadium's stands).
+    const torsos = this.torsos;
+    const heads = this.heads;
+    if (!torsos || !heads) return;
 
     const bobAmp = 0.045 * (1 + 0.9 * ex);
     const waveSpeed = 1.3 + ex * 1.7;
