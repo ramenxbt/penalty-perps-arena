@@ -8,6 +8,7 @@ import * as THREE from "three";
 import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
 import { clone as cloneSkinned } from "three/examples/jsm/utils/SkeletonUtils.js";
 import { ParticlePool } from "../arena/ParticlePool";
+import { CrowdV2 } from "./CrowdV2";
 import { PAL } from "./palette";
 import { BallTrail } from "./BallTrail";
 import { PostFx } from "./PostFx";
@@ -59,6 +60,8 @@ export class SceneV2 {
   private postfx: PostFx | null = null;
   private trail: BallTrail | null = null;
   private particles: ParticlePool | null = null;
+  private crowd2: CrowdV2 | null = null;
+  private elapsed = 0;
   private netBack: THREE.Mesh | null = null;
   private readonly netBaseZ = GOAL_Z - 1.2;
   private netHitT = 0;
@@ -97,6 +100,7 @@ export class SceneV2 {
     this.postfx = new PostFx(this.renderer, this.scene, this.camera, { enabled: true });
     this.trail = new BallTrail(this.scene, { color: PAL.accent, width: 0.14, length: 22 });
     this.particles = new ParticlePool(this.scene, 140);
+    this.crowd2 = new CrowdV2(this.scene, GOAL_Z);
     (window as unknown as { __v2: SceneV2 }).__v2 = this; // TEMP debug handle
   }
 
@@ -363,6 +367,8 @@ export class SceneV2 {
     }
     this.timeScale += (this.timeScaleTarget - this.timeScale) * Math.min(1, dt * 6);
     const g = dt * this.timeScale; // game time (slows during the strike)
+    this.elapsed += dt;
+    this.crowd2?.update(this.elapsed);
     this.mixer?.update(g);
     this.keeperMixer?.update(g);
     this.advance(g);
@@ -517,6 +523,7 @@ export class SceneV2 {
     this.postfx?.dispose();
     this.trail?.dispose();
     this.particles?.dispose();
+    this.crowd2?.dispose();
     this.disposables.forEach((d) => d.dispose());
     this.disposables = [];
     this.renderer.dispose();
