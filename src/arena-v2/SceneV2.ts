@@ -6,6 +6,7 @@
  */
 import * as THREE from "three";
 import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
+import { clone as cloneSkinned } from "three/examples/jsm/utils/SkeletonUtils.js";
 import { ParticlePool } from "../arena/ParticlePool";
 import { PAL } from "./palette";
 import { BallTrail } from "./BallTrail";
@@ -61,8 +62,18 @@ export class SceneV2 {
   private netBack: THREE.Mesh | null = null;
   private readonly netBaseZ = GOAL_Z - 1.2;
   private netHitT = 0;
-  /** Fired when a strike resolves; the React layer shows the GOOOAL callout. */
+  /** Fired when a strike resolves; the React layer shows the GOOOAL / SAVED callout. */
   onResult: ((kind: "goal" | "save") => void) | null = null;
+
+  // Keeper.
+  private keeper: THREE.Object3D | null = null;
+  private keeperMixer: THREE.AnimationMixer | null = null;
+  private keeperBaseY = 0;
+  private readonly keeperZ = GOAL_Z + 0.5;
+  private diveDir = 1;
+  private diveT = 0;
+  private diving = false;
+  private saved = false;
 
   constructor(canvas: HTMLCanvasElement) {
     this.renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
@@ -264,6 +275,9 @@ export class SceneV2 {
     root.position.copy(this.startPos);
     root.rotation.y = Math.PI; // face the goal (-Z)
 
+    // Clone a keeper from the clean (un-outlined) rig before we modify the kicker.
+    const keeperRoot = cloneSkinned(root);
+
     const kitMat = createToonMaterial({ color: PAL.kitPrimary, rimColor: PAL.rim, rimStrength: 1.0 });
     const trimMat = createToonMaterial({ color: PAL.kitSecondary, rimColor: PAL.rim, rimStrength: 0.6 });
     this.track(kitMat);
@@ -290,6 +304,33 @@ export class SceneV2 {
       this.clips.set(clip.name, this.mixer.clipAction(clip));
     }
     this.play("Rig|Idle_Loop");
+
+    this.setupKeeper(keeperRoot, gltf.animations);
+  }
+
+  private setupKeeper(root: THREE.Object3D, animations: THREE.AnimationClip[]) {
+    this.keeperBaseY = this.startPos.y;
+    root.position.set(0, this.keeperBaseY, this.keeperZ);
+    root.rotation.set(0, 0, 0); // face the kicker (+Z)
+    const kit = createToonMaterial({ color: PAL.accent, rimColor: PAL.rim, rimStrength: 0.95 }); // rival magenta
+    const trim = createToonMaterial({ color: 0x141622, rimColor: PAL.rim, rimStrength: 0.5 });
+    this.track(kit);
+    this.track(trim);
+    const meshes: THREE.Mesh[] = [];
+    root.traverse((o) => {
+      if ((o as THREE.Mesh).isMesh) meshes.push(o as THREE.Mesh);
+    });
+    for (const m of meshes) {
+      m.castShadow = true;
+      const n = (m.material as THREE.Material)?.name || "";
+      m.material = n === "M_Joints" ? trim : kit;
+      addInkOutline(m as THREE.SkinnedMesh, PAL.outline, 0.014);
+    }
+    this.scene.add(root);
+    this.keeper = root;
+    this.keeperMixer = new THREE.AnimationMixer(root);
+    const idle = animations.find((c) => c.name === "Rig|Idle_Loop");
+    if (idle) this.keeperMixer.clipAction(idle).play();
   }
 
   play(name: string, fade = 0.25) {
@@ -323,7 +364,9 @@ export class SceneV2 {
     this.timeScale += (this.timeScaleTarget - this.timeScale) * Math.min(1, dt * 6);
     const g = dt * this.timeScale; // game time (slows during the strike)
     this.mixer?.update(g);
+    this.keeperMixer?.update(g);
     this.advance(g);
+    this.diveStep(g);
     this.flightStep(g);
     this.particles?.update(dt);
     if (this.netHitT > 0) {
@@ -364,6 +407,13 @@ export class SceneV2 {
         this.ballFlying = false;
         this.ballT = 0;
         this.trail?.update(this.ballHome, false);
+        // Reset the keeper back to a ready stance in the goal.
+        this.diving = false;
+        this.diveT = 0;
+        if (this.keeper) {
+          this.keeper.position.set(0, this.keeperBaseY, this.keeperZ);
+          this.keeper.rotation.set(0, 0, 0);
+        }
       }
     }
   }
@@ -389,6 +439,15 @@ export class SceneV2 {
     this.slowmoT = 0.5;
     this.postfx?.triggerImpact();
     this.postfx?.setSpeedLines(1);
+
+    // Keeper reads the shot: dives to the aimed side ~55% of the time. A save needs the right
+    // side, a reachable height, and a shot that is not dead-center (where a dive cannot cover).
+    const correctSide = Math.sign(this.aimX) || 1;
+    this.diveDir = Math.random() < 0.55 ? correctSide : -correctSide;
+    const reachable = Math.abs(this.aimX) > 0.5 && Math.abs(this.aimX) < 2.4 && this.aimY < 1.7;
+    this.saved = this.diveDir === correctSide && reachable;
+    this.diving = true;
+    this.diveT = 0;
   }
 
   private flightStep(dt: number) {
@@ -408,8 +467,29 @@ export class SceneV2 {
       this.ballFlying = false;
       this.ballT = 0;
       this.trail?.update(this.ball.position, false, dt);
-      this.scoreGoal(); // TODO: keeper save vs goal once the keeper exists
+      if (this.saved) this.saveShot();
+      else this.scoreGoal();
     }
+  }
+
+  /** Keeper lunge: translate toward the dive side, hop, and topple (a grounded diving lunge). */
+  private diveStep(dt: number) {
+    if (!this.diving || !this.keeper) return;
+    this.diveT += dt;
+    const tt = Math.min(1, this.diveT / 0.5);
+    const e = 1 - (1 - tt) * (1 - tt); // easeOut
+    this.keeper.position.x = this.diveDir * 1.9 * e;
+    this.keeper.position.y = this.keeperBaseY + Math.sin(tt * Math.PI) * 0.35;
+    this.keeper.rotation.z = -this.diveDir * 1.0 * e;
+  }
+
+  /** Save payoff: ball deflects out to the dive side, a gray puff, no confetti. */
+  private saveShot() {
+    if (!this.ball) return;
+    this.ball.position.set(this.diveDir * 2.2, 1.5, GOAL_Z + 1.2);
+    this.particles?.burst(this.ball.position, 16, [0x9aa3ad, 0xd8dde4, PAL.rim], 0.6);
+    this.postfx?.setSpeedLines(0);
+    this.onResult?.("save");
   }
 
   /** Goal payoff: net bulge, gold/magenta confetti, a bloom flare, and the GOOOAL event. */

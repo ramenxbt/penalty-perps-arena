@@ -7,17 +7,16 @@ import { SceneV2 } from "../arena-v2/SceneV2";
 
 export function ArenaV2Dev() {
   const ref = useRef<HTMLCanvasElement>(null);
-  const [shout, setShout] = useState(false);
+  const [shout, setShout] = useState<"goal" | "save" | null>(null);
   useEffect(() => {
     const canvas = ref.current;
     if (!canvas) return;
     const scene = new SceneV2(canvas);
     let shoutTimer: number | undefined;
     scene.onResult = (kind) => {
-      if (kind !== "goal") return;
-      setShout(true);
+      setShout(kind);
       window.clearTimeout(shoutTimer);
-      shoutTimer = window.setTimeout(() => setShout(false), 1400);
+      shoutTimer = window.setTimeout(() => setShout(null), 1400);
     };
     const resize = () => scene.resize(window.innerWidth, window.innerHeight);
     resize();
@@ -53,16 +52,19 @@ export function ArenaV2Dev() {
             pointerEvents: "none",
             fontFamily: '"Arial Black", Impact, sans-serif',
             fontStyle: "italic",
-            fontSize: "min(18vw, 220px)",
+            fontSize: shout === "goal" ? "min(18vw, 220px)" : "min(13vw, 150px)",
             fontWeight: 900,
             letterSpacing: "0.02em",
-            color: "#e8edff",
-            WebkitTextStroke: "4px #ff2e88",
-            textShadow: "0 6px 0 rgba(255,46,136,0.45), 0 0 40px rgba(84,240,255,0.6)",
+            color: shout === "goal" ? "#e8edff" : "#cfe6ff",
+            WebkitTextStroke: shout === "goal" ? "4px #ff2e88" : "4px #54f0ff",
+            textShadow:
+              shout === "goal"
+                ? "0 6px 0 rgba(255,46,136,0.45), 0 0 40px rgba(84,240,255,0.6)"
+                : "0 5px 0 rgba(84,240,255,0.4), 0 0 36px rgba(20,40,80,0.8)",
             transform: "rotate(-6deg)",
           }}
         >
-          GOOOAL
+          {shout === "goal" ? "GOOOAL" : "SAVED"}
         </div>
       )}
     </>
