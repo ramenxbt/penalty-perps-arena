@@ -8,6 +8,7 @@ import * as THREE from "three";
 import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
 import { clone as cloneSkinned } from "three/examples/jsm/utils/SkeletonUtils.js";
 import { ParticlePool } from "../arena/ParticlePool";
+import { detectQuality } from "../arena/quality";
 import { CrowdV2 } from "./CrowdV2";
 import { PAL } from "./palette";
 import { BallTrail } from "./BallTrail";
@@ -78,9 +79,11 @@ export class SceneV2 {
   private diving = false;
   private saved = false;
 
+  private readonly quality = detectQuality();
+
   constructor(canvas: HTMLCanvasElement) {
-    this.renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
-    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+    this.renderer = new THREE.WebGLRenderer({ canvas, antialias: this.quality.antialias });
+    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, this.quality.pixelRatioCap));
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
     this.renderer.toneMappingExposure = 1.05;
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
@@ -97,11 +100,13 @@ export class SceneV2 {
     this.addGoal();
     this.addBall();
     void this.loadCharacter();
-    this.postfx = new PostFx(this.renderer, this.scene, this.camera, { enabled: true });
+    // Post FX (bloom + speed lines + impact frame) are the heaviest cost; drop them on low-end so
+    // the cel look (toon + ink outline) still carries on mobile.
+    this.postfx = new PostFx(this.renderer, this.scene, this.camera, { enabled: this.quality.tier !== "low" });
     this.trail = new BallTrail(this.scene, { color: PAL.accent, width: 0.14, length: 22 });
-    this.particles = new ParticlePool(this.scene, 140);
+    this.particles = new ParticlePool(this.scene, this.quality.particleCount);
     this.crowd2 = new CrowdV2(this.scene, GOAL_Z);
-    (window as unknown as { __v2: SceneV2 }).__v2 = this; // TEMP debug handle
+    if (import.meta.env.DEV) (window as unknown as { __v2: SceneV2 }).__v2 = this; // dev-only handle
   }
 
   private track<T extends { dispose: () => void }>(o: T): T {
