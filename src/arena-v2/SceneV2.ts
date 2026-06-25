@@ -6,6 +6,7 @@
  */
 import * as THREE from "three";
 import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
+import { ParticlePool } from "../arena/ParticlePool";
 import { PAL } from "./palette";
 import { BallTrail } from "./BallTrail";
 import { PostFx } from "./PostFx";
@@ -56,6 +57,12 @@ export class SceneV2 {
   private readonly axisX = new THREE.Vector3(1, 0, 0);
   private postfx: PostFx | null = null;
   private trail: BallTrail | null = null;
+  private particles: ParticlePool | null = null;
+  private netBack: THREE.Mesh | null = null;
+  private readonly netBaseZ = GOAL_Z - 1.2;
+  private netHitT = 0;
+  /** Fired when a strike resolves; the React layer shows the GOOOAL callout. */
+  onResult: ((kind: "goal" | "save") => void) | null = null;
 
   constructor(canvas: HTMLCanvasElement) {
     this.renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
@@ -78,6 +85,7 @@ export class SceneV2 {
     void this.loadCharacter();
     this.postfx = new PostFx(this.renderer, this.scene, this.camera, { enabled: true });
     this.trail = new BallTrail(this.scene, { color: PAL.accent, width: 0.14, length: 22 });
+    this.particles = new ParticlePool(this.scene, 140);
     (window as unknown as { __v2: SceneV2 }).__v2 = this; // TEMP debug handle
   }
 
@@ -221,6 +229,7 @@ export class SceneV2 {
     const back = new THREE.Mesh(this.track(new THREE.PlaneGeometry(GOAL_W, GOAL_H)), netMat);
     back.position.set(0, GOAL_H / 2, GOAL_Z - 1.2);
     this.scene.add(back);
+    this.netBack = back;
     const top = new THREE.Mesh(this.track(new THREE.PlaneGeometry(GOAL_W, 1.2)), netMat);
     top.rotation.x = -Math.PI / 2;
     top.position.set(0, GOAL_H, GOAL_Z - 0.6);
@@ -316,6 +325,13 @@ export class SceneV2 {
     this.mixer?.update(g);
     this.advance(g);
     this.flightStep(g);
+    this.particles?.update(dt);
+    if (this.netHitT > 0) {
+      this.netHitT = Math.max(0, this.netHitT - dt);
+      const e = this.netHitT / 0.55;
+      if (this.netBack) this.netBack.position.z = this.netBaseZ - Math.sin(e * Math.PI) * 0.35; // bulge + settle
+      if (this.netHitT === 0) this.postfx?.setBloomStrength(0.6);
+    }
     this.postfx?.update(dt); // post fx keep real time so they never stutter
   }
 
@@ -339,7 +355,7 @@ export class SceneV2 {
         this.phaseT = 0;
       }
     } else if (this.phase === "recover") {
-      if (this.phaseT >= RECOVER) {
+      if (this.phaseT >= RECOVER && !this.ballFlying) {
         this.phase = "idle";
         this.phaseT = 0;
         this.autoTimer = 0;
@@ -391,8 +407,18 @@ export class SceneV2 {
     if (t >= 1) {
       this.ballFlying = false;
       this.ballT = 0;
-      this.trail?.update(this.ball.position, false, dt); // TODO net ripple + goal/save result
+      this.trail?.update(this.ball.position, false, dt);
+      this.scoreGoal(); // TODO: keeper save vs goal once the keeper exists
     }
+  }
+
+  /** Goal payoff: net bulge, gold/magenta confetti, a bloom flare, and the GOOOAL event. */
+  private scoreGoal() {
+    if (!this.ball) return;
+    this.particles?.burst(this.ball.position, 90, [0xffce54, 0xff2e88, 0xffffff, 0x54f0ff], 1.3);
+    this.netHitT = 0.55;
+    this.postfx?.setBloomStrength(1.1);
+    this.onResult?.("goal");
   }
 
   render() {
@@ -410,6 +436,7 @@ export class SceneV2 {
   dispose() {
     this.postfx?.dispose();
     this.trail?.dispose();
+    this.particles?.dispose();
     this.disposables.forEach((d) => d.dispose());
     this.disposables = [];
     this.renderer.dispose();
