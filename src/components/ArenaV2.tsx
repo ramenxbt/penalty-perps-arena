@@ -5,8 +5,9 @@
  * volley (forced to match the authoritative shots/goals). Mounted at /?v2. v1 is untouched.
  */
 import { CSSProperties, ReactNode, useEffect, useRef, useState } from "react";
-import { useAuth } from "../auth/AuthContext";
+import { useAuth, truncateAddress } from "../auth/AuthContext";
 import { SceneV2 } from "../arena-v2/SceneV2";
+import { PROFIT_TO_SHOTS_LINE } from "../game/engine";
 import { useArenaAudio } from "../hooks/useArenaAudio";
 import { useSession } from "../hooks/useSession";
 import { Candles } from "./Candles";
@@ -18,6 +19,7 @@ export function ArenaV2() {
   const auth = useAuth();
   useArenaAudio(game.phase, game.outcome, game.shooters);
   const [showStandings, setShowStandings] = useState(false);
+  const [showProfile, setShowProfile] = useState(false);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const sceneRef = useRef<SceneV2 | null>(null);
   const [shout, setShout] = useState<"goal" | "save" | null>(null);
@@ -118,29 +120,36 @@ export function ArenaV2() {
         </>
       )}
 
-      {!inMatch && sp !== "countdown" && !showStandings && (
+      {!inMatch && sp !== "countdown" && !showStandings && !showProfile && (
         <button style={acctChip} onClick={() => (auth.isAuthenticated ? auth.logout() : auth.login())}>
           {auth.isAuthenticated ? (auth.user?.displayName ?? "@you") : "Connect"}
         </button>
       )}
 
-      {sp === "welcome" && !showStandings && (
+      {sp === "welcome" && !showStandings && !showProfile && (
         <Overlay>
           <div style={eyebrow}>MERIDIAN CUP</div>
           <h1 style={title}>PENALTY PERPS</h1>
           <p style={sub}>Trade the chart. Earn your shots. Beat the keeper.</p>
+          <p style={howTo}>Profit earns shots: {PROFIT_TO_SHOTS_LINE}</p>
           <PrimaryButton onClick={() => game.enterLobby()}>Enter arena</PrimaryButton>
-          <SecondaryButton onClick={() => setShowStandings(true)}>Season standings</SecondaryButton>
+          <div style={navRow}>
+            <SecondaryButton onClick={() => setShowStandings(true)}>Standings</SecondaryButton>
+            <SecondaryButton onClick={() => setShowProfile(true)}>You</SecondaryButton>
+          </div>
         </Overlay>
       )}
 
-      {sp === "lobby" && !showStandings && (
+      {sp === "lobby" && !showStandings && !showProfile && (
         <Overlay>
           <div style={eyebrow}>MERIDIAN CUP</div>
           <h1 style={title}>Ready up</h1>
           <p style={sub}>{game.matchRounds} rounds. Read the market, bury your chances.</p>
           <PrimaryButton onClick={() => game.startMatch()}>Start match</PrimaryButton>
-          <SecondaryButton onClick={() => setShowStandings(true)}>Season standings</SecondaryButton>
+          <div style={navRow}>
+            <SecondaryButton onClick={() => setShowStandings(true)}>Standings</SecondaryButton>
+            <SecondaryButton onClick={() => setShowProfile(true)}>You</SecondaryButton>
+          </div>
         </Overlay>
       )}
 
@@ -166,6 +175,22 @@ export function ArenaV2() {
         </Overlay>
       )}
 
+      {showProfile && (
+        <Overlay>
+          <div style={eyebrow}>YOUR CARD</div>
+          <h1 style={{ ...title, fontSize: 34 }}>{auth.user?.displayName ?? "@you"}</h1>
+          <div style={statGrid}>
+            <Stat label="SEASON RANK" value={`#${game.seasonRank} of ${game.fieldSize}`} />
+            <Stat label="SCORE" value={String(game.score)} />
+            <Stat label="STREAK" value={String(game.streak)} />
+            <Stat label="ROUNDS LEFT" value={`${game.roundsLeft}/${5}`} />
+            <Stat label="STATUS" value={game.isHolder ? "Holder" : "Paper"} />
+            <Stat label="WALLET" value={game.walletAddress ? truncateAddress(game.walletAddress) : "Guest"} />
+          </div>
+          <PrimaryButton onClick={() => setShowProfile(false)}>Back</PrimaryButton>
+        </Overlay>
+      )}
+
       {sp === "countdown" && (
         <div style={countdownStyle}>{game.countin > 0 ? game.countin : "GO"}</div>
       )}
@@ -183,7 +208,7 @@ export function ArenaV2() {
         </Overlay>
       )}
 
-      {sp === "match_results" && game.matchResult && !showStandings && (
+      {sp === "match_results" && game.matchResult && !showStandings && !showProfile && (
         <Overlay>
           <div style={eyebrow}>CUP COMPLETE</div>
           <h1 style={title}>
@@ -194,7 +219,10 @@ export function ArenaV2() {
             {game.matchResult.totals.goals === 1 ? "goal" : "goals"}
           </p>
           <PrimaryButton onClick={() => game.findNewMatch()}>Play again</PrimaryButton>
-          <SecondaryButton onClick={() => setShowStandings(true)}>Season standings</SecondaryButton>
+          <div style={navRow}>
+            <SecondaryButton onClick={() => setShowStandings(true)}>Standings</SecondaryButton>
+            <SecondaryButton onClick={() => setShowProfile(true)}>You</SecondaryButton>
+          </div>
         </Overlay>
       )}
 
@@ -243,6 +271,15 @@ function SecondaryButton({ children, onClick }: { children: ReactNode; onClick: 
   );
 }
 
+function Stat({ label, value }: { label: string; value: string }) {
+  return (
+    <div style={statCell}>
+      <span style={{ ...lbl, fontSize: 10 }}>{label}</span>
+      <strong style={{ ...val, fontSize: 20 }}>{value}</strong>
+    </div>
+  );
+}
+
 const mono = '"IBM Plex Mono", ui-monospace, monospace';
 const topBar: CSSProperties = { position: "fixed", top: 0, left: 0, right: 0, display: "flex", gap: 10, padding: "14px 18px", pointerEvents: "none", fontFamily: mono };
 const chip: CSSProperties = { display: "flex", flexDirection: "column", padding: "6px 12px", background: "rgba(8,10,22,0.6)", border: "1px solid rgba(120,150,255,0.2)", borderRadius: 10, backdropFilter: "blur(6px)" };
@@ -263,6 +300,10 @@ const acctChip: CSSProperties = { position: "fixed", top: 16, right: 18, fontFam
 const ladderList: CSSProperties = { display: "flex", flexDirection: "column", gap: 4, width: "min(80vw, 380px)", maxHeight: "46vh", overflowY: "auto", fontFamily: mono, fontSize: 14 };
 const ladderRow: CSSProperties = { display: "flex", alignItems: "center", gap: 8, padding: "8px 12px", borderRadius: 8, color: "#cfd6ea", background: "rgba(255,255,255,0.03)" };
 const ladderMe: CSSProperties = { background: "rgba(84,240,255,0.1)", border: "1px solid rgba(84,240,255,0.35)" };
+const navRow: CSSProperties = { display: "flex", gap: 10 };
+const howTo: CSSProperties = { margin: "2px 0 4px", fontSize: 12, color: "#54f0ff", letterSpacing: "0.04em" };
+const statGrid: CSSProperties = { display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, width: "min(80vw, 360px)" };
+const statCell: CSSProperties = { display: "flex", flexDirection: "column", gap: 2, padding: "12px 14px", background: "rgba(255,255,255,0.04)", border: "1px solid rgba(120,150,255,0.18)", borderRadius: 10, textAlign: "left" };
 const countdownStyle: CSSProperties = { position: "fixed", inset: 0, display: "flex", alignItems: "center", justifyContent: "center", pointerEvents: "none", fontFamily: '"Arial Black", Impact, sans-serif', fontStyle: "italic", fontSize: "min(28vw, 340px)", fontWeight: 900, color: "#e8edff", WebkitTextStroke: "5px #54f0ff", textShadow: "0 0 50px rgba(84,240,255,0.6)" };
 
 function shoutStyle(kind: "goal" | "save"): CSSProperties {
