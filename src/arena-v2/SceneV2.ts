@@ -550,7 +550,18 @@ export class SceneV2 {
 
   resize(w: number, h: number) {
     this.renderer.setSize(w, h, false);
-    this.camera.aspect = w / h;
+    const aspect = w / h;
+    this.camera.aspect = aspect;
+    // Portrait/narrow screens have a tight horizontal view, so pull back + widen the lens and
+    // lift a touch to keep the kicker, ball and goal all framed instead of cropping the kicker.
+    if (aspect < 1) {
+      this.camera.position.set(0, 3.4, 5.2 + (1 - aspect) * 7);
+      this.camera.fov = 54;
+    } else {
+      this.camera.position.set(0, 2.7, 5.2);
+      this.camera.fov = 46;
+    }
+    this.camera.lookAt(0, 1.4, -6);
     this.camera.updateProjectionMatrix();
     this.postfx?.resize(w, h);
   }

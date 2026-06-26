@@ -20,6 +20,7 @@ export function ArenaV2() {
   useArenaAudio(game.phase, game.outcome, game.shooters);
   const [showStandings, setShowStandings] = useState(false);
   const [showProfile, setShowProfile] = useState(false);
+  const [isPhone, setIsPhone] = useState(() => typeof window !== "undefined" && window.innerWidth < 560);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const sceneRef = useRef<SceneV2 | null>(null);
   const [shout, setShout] = useState<"goal" | "save" | null>(null);
@@ -36,7 +37,10 @@ export function ArenaV2() {
       window.clearTimeout(shoutTimer);
       shoutTimer = window.setTimeout(() => setShout(null), 1300);
     };
-    const resize = () => scene.resize(window.innerWidth, window.innerHeight);
+    const resize = () => {
+      scene.resize(window.innerWidth, window.innerHeight);
+      setIsPhone(window.innerWidth < 560);
+    };
     resize();
     window.addEventListener("resize", resize);
     let raf = 0;
@@ -91,7 +95,7 @@ export function ArenaV2() {
             </div>
           </div>
 
-          <div style={chartWrap}>
+          <div style={isPhone ? chartWrapPhone : chartWrap}>
             <Candles points={game.market} entryPrice={game.entryPrice} asset={game.marketAsset} pnlPct={trading ? pnl : null} />
           </div>
 
@@ -286,6 +290,8 @@ const chip: CSSProperties = { display: "flex", flexDirection: "column", padding:
 const lbl: CSSProperties = { fontSize: 9, letterSpacing: "0.12em", color: "#7e8aa8" };
 const val: CSSProperties = { fontSize: 18, color: "#e8edff", fontWeight: 700, fontFamily: mono };
 const chartWrap: CSSProperties = { position: "fixed", left: 16, bottom: 16, width: "min(38vw, 380px)", height: 160, background: "rgba(8,10,22,0.55)", border: "1px solid rgba(120,150,255,0.18)", borderRadius: 12, overflow: "hidden", backdropFilter: "blur(6px)" };
+// On phones the chart moves up under the top bar so it never collides with the bottom dock.
+const chartWrapPhone: CSSProperties = { position: "fixed", left: 10, right: 10, top: 60, width: "auto", height: 110, background: "rgba(8,10,22,0.55)", border: "1px solid rgba(120,150,255,0.18)", borderRadius: 12, overflow: "hidden", backdropFilter: "blur(6px)" };
 const dock: CSSProperties = { position: "fixed", bottom: 26, left: "50%", transform: "translateX(-50%)", display: "flex", gap: 14, alignItems: "center" };
 const btn: CSSProperties = { fontFamily: mono, fontWeight: 800, fontSize: 18, letterSpacing: "0.08em", color: "#eaf0ff", border: "none", borderRadius: 14, padding: "16px 30px", cursor: "pointer", boxShadow: "0 8px 24px rgba(0,0,0,0.45)" };
 
