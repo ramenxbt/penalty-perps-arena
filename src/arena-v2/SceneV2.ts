@@ -286,7 +286,7 @@ export class SceneV2 {
     this.startPos.y = groundY;
     this.plantPos.y = groundY;
     root.position.copy(this.startPos);
-    root.rotation.y = Math.PI; // face the goal (-Z)
+    root.rotation.y = 0; // face the goal (-Z); the model's default forward is -Z
 
     // Clone a keeper from the clean (un-outlined) rig before we modify the kicker.
     const keeperRoot = cloneSkinned(root);
@@ -324,7 +324,7 @@ export class SceneV2 {
   private setupKeeper(root: THREE.Object3D, animations: THREE.AnimationClip[]) {
     this.keeperBaseY = this.startPos.y;
     root.position.set(0, this.keeperBaseY, this.keeperZ);
-    root.rotation.set(0, 0, 0); // face the kicker (+Z)
+    root.rotation.set(0, Math.PI, 0); // face the kicker (+Z)
     const kit = createToonMaterial({ color: PAL.accent, rimColor: PAL.rim, rimStrength: 0.95 }); // rival magenta
     const trim = createToonMaterial({ color: 0x141622, rimColor: PAL.rim, rimStrength: 0.5 });
     this.track(kit);
@@ -445,7 +445,7 @@ export class SceneV2 {
         this.diveT = 0;
         if (this.keeper) {
           this.keeper.position.set(0, this.keeperBaseY, this.keeperZ);
-          this.keeper.rotation.set(0, 0, 0);
+          this.keeper.rotation.set(0, Math.PI, 0);
         }
         // Continue a queued volley (the next earned shot).
         if (this.volley.length > 0) this.kick(this.volley.shift());
