@@ -5,14 +5,19 @@
  * volley (forced to match the authoritative shots/goals). Mounted at /?v2. v1 is untouched.
  */
 import { CSSProperties, ReactNode, useEffect, useRef, useState } from "react";
+import { useAuth } from "../auth/AuthContext";
 import { SceneV2 } from "../arena-v2/SceneV2";
 import { useArenaAudio } from "../hooks/useArenaAudio";
 import { useSession } from "../hooks/useSession";
 import { Candles } from "./Candles";
 
+const cleanName = (n: string) => n.replace(/^AI (Squad|Keeper): /, "");
+
 export function ArenaV2() {
   const game = useSession();
+  const auth = useAuth();
   useArenaAudio(game.phase, game.outcome, game.shooters);
+  const [showStandings, setShowStandings] = useState(false);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const sceneRef = useRef<SceneV2 | null>(null);
   const [shout, setShout] = useState<"goal" | "save" | null>(null);
@@ -113,21 +118,51 @@ export function ArenaV2() {
         </>
       )}
 
-      {sp === "welcome" && (
+      {!inMatch && sp !== "countdown" && !showStandings && (
+        <button style={acctChip} onClick={() => (auth.isAuthenticated ? auth.logout() : auth.login())}>
+          {auth.isAuthenticated ? (auth.user?.displayName ?? "@you") : "Connect"}
+        </button>
+      )}
+
+      {sp === "welcome" && !showStandings && (
         <Overlay>
           <div style={eyebrow}>MERIDIAN CUP</div>
           <h1 style={title}>PENALTY PERPS</h1>
           <p style={sub}>Trade the chart. Earn your shots. Beat the keeper.</p>
           <PrimaryButton onClick={() => game.enterLobby()}>Enter arena</PrimaryButton>
+          <SecondaryButton onClick={() => setShowStandings(true)}>Season standings</SecondaryButton>
         </Overlay>
       )}
 
-      {sp === "lobby" && (
+      {sp === "lobby" && !showStandings && (
         <Overlay>
           <div style={eyebrow}>MERIDIAN CUP</div>
           <h1 style={title}>Ready up</h1>
           <p style={sub}>{game.matchRounds} rounds. Read the market, bury your chances.</p>
           <PrimaryButton onClick={() => game.startMatch()}>Start match</PrimaryButton>
+          <SecondaryButton onClick={() => setShowStandings(true)}>Season standings</SecondaryButton>
+        </Overlay>
+      )}
+
+      {showStandings && (
+        <Overlay>
+          <div style={eyebrow}>SEASON LADDER</div>
+          <div style={ladderList}>
+            {game.ladder.slice(0, 12).map((r) => {
+              const me = r.id === game.meId;
+              return (
+                <div key={r.id} style={{ ...ladderRow, ...(me ? ladderMe : null) }}>
+                  <span style={{ width: 26, color: "#7e8aa8" }}>{r.rank}</span>
+                  <span style={{ flex: 1, textAlign: "left", color: me ? "#54f0ff" : "#e8edff" }}>
+                    {cleanName(r.name)}
+                    {me ? " (you)" : ""}
+                  </span>
+                  <span style={{ width: 72, textAlign: "right" }}>{r.score}</span>
+                </div>
+              );
+            })}
+          </div>
+          <PrimaryButton onClick={() => setShowStandings(false)}>Back</PrimaryButton>
         </Overlay>
       )}
 
@@ -148,7 +183,7 @@ export function ArenaV2() {
         </Overlay>
       )}
 
-      {sp === "match_results" && game.matchResult && (
+      {sp === "match_results" && game.matchResult && !showStandings && (
         <Overlay>
           <div style={eyebrow}>CUP COMPLETE</div>
           <h1 style={title}>
@@ -159,6 +194,7 @@ export function ArenaV2() {
             {game.matchResult.totals.goals === 1 ? "goal" : "goals"}
           </p>
           <PrimaryButton onClick={() => game.findNewMatch()}>Play again</PrimaryButton>
+          <SecondaryButton onClick={() => setShowStandings(true)}>Season standings</SecondaryButton>
         </Overlay>
       )}
 
@@ -199,6 +235,14 @@ function PrimaryButton({ children, onClick }: { children: ReactNode; onClick: ()
   );
 }
 
+function SecondaryButton({ children, onClick }: { children: ReactNode; onClick: () => void }) {
+  return (
+    <button style={secondaryBtn} onClick={onClick}>
+      {children}
+    </button>
+  );
+}
+
 const mono = '"IBM Plex Mono", ui-monospace, monospace';
 const topBar: CSSProperties = { position: "fixed", top: 0, left: 0, right: 0, display: "flex", gap: 10, padding: "14px 18px", pointerEvents: "none", fontFamily: mono };
 const chip: CSSProperties = { display: "flex", flexDirection: "column", padding: "6px 12px", background: "rgba(8,10,22,0.6)", border: "1px solid rgba(120,150,255,0.2)", borderRadius: 10, backdropFilter: "blur(6px)" };
@@ -214,6 +258,11 @@ const eyebrow: CSSProperties = { fontSize: 12, letterSpacing: "0.3em", color: "#
 const title: CSSProperties = { margin: 0, fontSize: 44, fontWeight: 900, fontStyle: "italic", color: "#e8edff", letterSpacing: "0.02em" };
 const sub: CSSProperties = { margin: 0, fontSize: 14, color: "#9aa6c8" };
 const primaryBtn: CSSProperties = { marginTop: 8, fontFamily: mono, fontWeight: 800, fontSize: 18, letterSpacing: "0.08em", color: "#04210f", background: "#2fd07a", border: "none", borderRadius: 14, padding: "15px 34px", cursor: "pointer", boxShadow: "0 8px 28px rgba(47,208,122,0.35)" };
+const secondaryBtn: CSSProperties = { fontFamily: mono, fontWeight: 700, fontSize: 13, letterSpacing: "0.1em", color: "#9aa6c8", background: "transparent", border: "1px solid rgba(120,150,255,0.25)", borderRadius: 12, padding: "10px 22px", cursor: "pointer" };
+const acctChip: CSSProperties = { position: "fixed", top: 16, right: 18, fontFamily: mono, fontWeight: 700, fontSize: 13, letterSpacing: "0.08em", color: "#e8edff", background: "rgba(8,10,22,0.6)", border: "1px solid rgba(120,150,255,0.25)", borderRadius: 12, padding: "10px 18px", cursor: "pointer", backdropFilter: "blur(6px)" };
+const ladderList: CSSProperties = { display: "flex", flexDirection: "column", gap: 4, width: "min(80vw, 380px)", maxHeight: "46vh", overflowY: "auto", fontFamily: mono, fontSize: 14 };
+const ladderRow: CSSProperties = { display: "flex", alignItems: "center", gap: 8, padding: "8px 12px", borderRadius: 8, color: "#cfd6ea", background: "rgba(255,255,255,0.03)" };
+const ladderMe: CSSProperties = { background: "rgba(84,240,255,0.1)", border: "1px solid rgba(84,240,255,0.35)" };
 const countdownStyle: CSSProperties = { position: "fixed", inset: 0, display: "flex", alignItems: "center", justifyContent: "center", pointerEvents: "none", fontFamily: '"Arial Black", Impact, sans-serif', fontStyle: "italic", fontSize: "min(28vw, 340px)", fontWeight: 900, color: "#e8edff", WebkitTextStroke: "5px #54f0ff", textShadow: "0 0 50px rgba(84,240,255,0.6)" };
 
 function shoutStyle(kind: "goal" | "save"): CSSProperties {
