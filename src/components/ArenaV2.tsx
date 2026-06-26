@@ -1,16 +1,18 @@
 /**
- * ArenaV2: the playable v2 view. Reuses the existing trade-to-shoot logic (useGameSimulation)
- * and renders the cel-shaded SceneV2 + a minimal behind-kicker HUD. The resolved round outcome
- * drives the kick volley (the kicks are forced to match the authoritative shots/goals), so the
- * visuals always agree with the game logic. Mounted at /?v2.
+ * ArenaV2: the playable v2 view. Drives the cel-shaded SceneV2 from the full cup session
+ * (useSession: welcome -> lobby -> countdown -> in_match -> round_break -> match_results) and
+ * the existing trade-to-shoot logic, with audio. The resolved round outcome drives the kick
+ * volley (forced to match the authoritative shots/goals). Mounted at /?v2. v1 is untouched.
  */
-import { CSSProperties, useEffect, useRef, useState } from "react";
+import { CSSProperties, ReactNode, useEffect, useRef, useState } from "react";
 import { SceneV2 } from "../arena-v2/SceneV2";
-import { useGameSimulation } from "../hooks/useGameSimulation";
+import { useArenaAudio } from "../hooks/useArenaAudio";
+import { useSession } from "../hooks/useSession";
 import { Candles } from "./Candles";
 
 export function ArenaV2() {
-  const game = useGameSimulation();
+  const game = useSession();
+  useArenaAudio(game.phase, game.outcome, game.shooters);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const sceneRef = useRef<SceneV2 | null>(null);
   const [shout, setShout] = useState<"goal" | "save" | null>(null);
@@ -49,18 +51,20 @@ export function ArenaV2() {
     };
   }, []);
 
-  // Drive the kick volley once per resolved outcome.
+  // Drive the kick volley once per resolved outcome, only during a match.
   const playedRef = useRef<unknown>(null);
   useEffect(() => {
     const o = game.outcome;
-    if (!o || playedRef.current === o) return;
+    if (!o || playedRef.current === o || game.sessionPhase !== "in_match") return;
     if (game.phase !== "resolving" && game.phase !== "settled") return;
     playedRef.current = o;
     sceneRef.current?.playVolley(o.shots, o.goals);
-  }, [game.phase, game.outcome]);
+  }, [game.phase, game.outcome, game.sessionPhase]);
 
-  const flat = game.phase === "idle" || game.phase === "settled";
-  const trading = game.phase === "trading";
+  const sp = game.sessionPhase;
+  const inMatch = sp === "in_match";
+  const flat = inMatch && (game.phase === "idle" || game.phase === "settled");
+  const trading = inMatch && game.phase === "trading";
   const canOpen = flat && game.ready && game.marketReady && game.roundsLeft > 0 && !game.busy;
   const pnl = game.pnlPct;
   const pnlColor = pnl >= 0 ? "#2fd07a" : "#ff5247";
@@ -69,57 +73,105 @@ export function ArenaV2() {
     <div style={{ position: "fixed", inset: 0, overflow: "hidden", background: "#05060f" }}>
       <canvas ref={canvasRef} style={{ position: "fixed", inset: 0, width: "100vw", height: "100vh", display: "block" }} />
 
-      <div style={topBar}>
-        <Chip label="SCORE" value={String(game.score)} />
-        <Chip label="STREAK" value={String(game.streak)} />
-        <Chip label="ROUNDS" value={String(game.roundsLeft)} />
-        <div style={{ marginLeft: "auto" }}>
-          <Chip label={game.marketAsset.displayPair} value={`$${game.derived.price.toFixed(2)}`} />
-        </div>
-      </div>
-
-      <div style={chartWrap}>
-        <Candles points={game.market} entryPrice={game.entryPrice} asset={game.marketAsset} pnlPct={trading ? pnl : null} />
-      </div>
-
-      <div style={dock}>
-        {trading ? (
-          <>
-            <div style={{ ...val, fontSize: 30, color: pnlColor, minWidth: 120, textAlign: "center" }}>
-              {pnl >= 0 ? "+" : ""}
-              {pnl.toFixed(2)}%
+      {inMatch && (
+        <>
+          <div style={topBar}>
+            <Chip label="SCORE" value={String(game.score)} />
+            <Chip label="STREAK" value={String(game.streak)} />
+            <Chip label="ROUND" value={`${game.roundNumber}/${game.matchRounds}`} />
+            <div style={{ marginLeft: "auto" }}>
+              <Chip label={game.marketAsset.displayPair} value={`$${game.derived.price.toFixed(2)}`} />
             </div>
-            <button
-              style={{ ...btn, background: "#1238ff", opacity: game.canCloseNow ? 1 : 0.5 }}
-              onClick={() => game.closeNow()}
-              disabled={!game.canCloseNow}
-            >
-              BANK {game.shotsNow} {game.shotsNow === 1 ? "SHOT" : "SHOTS"}
-            </button>
-          </>
-        ) : (
-          <>
-            <button
-              style={{ ...btn, background: "#2fd07a", color: "#04210f", opacity: canOpen ? 1 : 0.4 }}
-              onClick={() => game.openTrade("long")}
-              disabled={!canOpen}
-            >
-              LONG
-            </button>
-            <button
-              style={{ ...btn, background: "#ff5247", opacity: canOpen ? 1 : 0.4 }}
-              onClick={() => game.openTrade("short")}
-              disabled={!canOpen}
-            >
-              SHORT
-            </button>
-          </>
-        )}
-      </div>
+          </div>
+
+          <div style={chartWrap}>
+            <Candles points={game.market} entryPrice={game.entryPrice} asset={game.marketAsset} pnlPct={trading ? pnl : null} />
+          </div>
+
+          <div style={dock}>
+            {trading ? (
+              <>
+                <div style={{ ...val, fontSize: 30, color: pnlColor, minWidth: 120, textAlign: "center" }}>
+                  {pnl >= 0 ? "+" : ""}
+                  {pnl.toFixed(2)}%
+                </div>
+                <button style={{ ...btn, background: "#1238ff", opacity: game.canCloseNow ? 1 : 0.5 }} onClick={() => game.closeNow()} disabled={!game.canCloseNow}>
+                  BANK {game.shotsNow} {game.shotsNow === 1 ? "SHOT" : "SHOTS"}
+                </button>
+              </>
+            ) : (
+              <>
+                <button style={{ ...btn, background: "#2fd07a", color: "#04210f", opacity: canOpen ? 1 : 0.4 }} onClick={() => game.openTrade("long")} disabled={!canOpen}>
+                  LONG
+                </button>
+                <button style={{ ...btn, background: "#ff5247", opacity: canOpen ? 1 : 0.4 }} onClick={() => game.openTrade("short")} disabled={!canOpen}>
+                  SHORT
+                </button>
+              </>
+            )}
+          </div>
+        </>
+      )}
+
+      {sp === "welcome" && (
+        <Overlay>
+          <div style={eyebrow}>MERIDIAN CUP</div>
+          <h1 style={title}>PENALTY PERPS</h1>
+          <p style={sub}>Trade the chart. Earn your shots. Beat the keeper.</p>
+          <PrimaryButton onClick={() => game.enterLobby()}>Enter arena</PrimaryButton>
+        </Overlay>
+      )}
+
+      {sp === "lobby" && (
+        <Overlay>
+          <div style={eyebrow}>MERIDIAN CUP</div>
+          <h1 style={title}>Ready up</h1>
+          <p style={sub}>{game.matchRounds} rounds. Read the market, bury your chances.</p>
+          <PrimaryButton onClick={() => game.startMatch()}>Start match</PrimaryButton>
+        </Overlay>
+      )}
+
+      {sp === "countdown" && (
+        <div style={countdownStyle}>{game.countin > 0 ? game.countin : "GO"}</div>
+      )}
+
+      {sp === "round_break" && (
+        <Overlay>
+          <div style={eyebrow}>
+            ROUND {game.roundNumber}/{game.matchRounds}
+          </div>
+          <h1 style={title}>{game.score} pts</h1>
+          <p style={sub}>Streak {game.streak}</p>
+          <PrimaryButton onClick={() => game.advanceRound()}>
+            {game.isFinalRound ? "See results" : `Next round${game.breakSecondsLeft ? ` (${game.breakSecondsLeft})` : ""}`}
+          </PrimaryButton>
+        </Overlay>
+      )}
+
+      {sp === "match_results" && game.matchResult && (
+        <Overlay>
+          <div style={eyebrow}>CUP COMPLETE</div>
+          <h1 style={title}>
+            {placementLabel(game.matchResult.placement)} of {game.matchResult.fieldSize}
+          </h1>
+          <p style={sub}>
+            {game.matchResult.totals.points} pts · {game.matchResult.totals.goals}{" "}
+            {game.matchResult.totals.goals === 1 ? "goal" : "goals"}
+          </p>
+          <PrimaryButton onClick={() => game.findNewMatch()}>Play again</PrimaryButton>
+        </Overlay>
+      )}
 
       {shout && <div style={shoutStyle(shout)}>{shout === "goal" ? "GOOOAL" : "SAVED"}</div>}
     </div>
   );
+}
+
+function placementLabel(n: number): string {
+  if (n === 1) return "1st";
+  if (n === 2) return "2nd";
+  if (n === 3) return "3rd";
+  return `${n}th`;
 }
 
 function Chip({ label, value }: { label: string; value: string }) {
@@ -131,6 +183,22 @@ function Chip({ label, value }: { label: string; value: string }) {
   );
 }
 
+function Overlay({ children }: { children: ReactNode }) {
+  return (
+    <div style={overlayWrap}>
+      <div style={overlayPanel}>{children}</div>
+    </div>
+  );
+}
+
+function PrimaryButton({ children, onClick }: { children: ReactNode; onClick: () => void }) {
+  return (
+    <button style={primaryBtn} onClick={onClick}>
+      {children}
+    </button>
+  );
+}
+
 const mono = '"IBM Plex Mono", ui-monospace, monospace';
 const topBar: CSSProperties = { position: "fixed", top: 0, left: 0, right: 0, display: "flex", gap: 10, padding: "14px 18px", pointerEvents: "none", fontFamily: mono };
 const chip: CSSProperties = { display: "flex", flexDirection: "column", padding: "6px 12px", background: "rgba(8,10,22,0.6)", border: "1px solid rgba(120,150,255,0.2)", borderRadius: 10, backdropFilter: "blur(6px)" };
@@ -139,6 +207,14 @@ const val: CSSProperties = { fontSize: 18, color: "#e8edff", fontWeight: 700, fo
 const chartWrap: CSSProperties = { position: "fixed", left: 16, bottom: 16, width: "min(38vw, 380px)", height: 160, background: "rgba(8,10,22,0.55)", border: "1px solid rgba(120,150,255,0.18)", borderRadius: 12, overflow: "hidden", backdropFilter: "blur(6px)" };
 const dock: CSSProperties = { position: "fixed", bottom: 26, left: "50%", transform: "translateX(-50%)", display: "flex", gap: 14, alignItems: "center" };
 const btn: CSSProperties = { fontFamily: mono, fontWeight: 800, fontSize: 18, letterSpacing: "0.08em", color: "#eaf0ff", border: "none", borderRadius: 14, padding: "16px 30px", cursor: "pointer", boxShadow: "0 8px 24px rgba(0,0,0,0.45)" };
+
+const overlayWrap: CSSProperties = { position: "fixed", inset: 0, display: "flex", alignItems: "center", justifyContent: "center", fontFamily: mono, background: "radial-gradient(ellipse at center, rgba(5,6,15,0.35), rgba(5,6,15,0.78))" };
+const overlayPanel: CSSProperties = { display: "flex", flexDirection: "column", alignItems: "center", gap: 14, padding: "38px 48px", textAlign: "center", background: "rgba(8,10,22,0.66)", border: "1px solid rgba(120,150,255,0.22)", borderRadius: 18, backdropFilter: "blur(10px)" };
+const eyebrow: CSSProperties = { fontSize: 12, letterSpacing: "0.3em", color: "#54f0ff" };
+const title: CSSProperties = { margin: 0, fontSize: 44, fontWeight: 900, fontStyle: "italic", color: "#e8edff", letterSpacing: "0.02em" };
+const sub: CSSProperties = { margin: 0, fontSize: 14, color: "#9aa6c8" };
+const primaryBtn: CSSProperties = { marginTop: 8, fontFamily: mono, fontWeight: 800, fontSize: 18, letterSpacing: "0.08em", color: "#04210f", background: "#2fd07a", border: "none", borderRadius: 14, padding: "15px 34px", cursor: "pointer", boxShadow: "0 8px 28px rgba(47,208,122,0.35)" };
+const countdownStyle: CSSProperties = { position: "fixed", inset: 0, display: "flex", alignItems: "center", justifyContent: "center", pointerEvents: "none", fontFamily: '"Arial Black", Impact, sans-serif', fontStyle: "italic", fontSize: "min(28vw, 340px)", fontWeight: 900, color: "#e8edff", WebkitTextStroke: "5px #54f0ff", textShadow: "0 0 50px rgba(84,240,255,0.6)" };
 
 function shoutStyle(kind: "goal" | "save"): CSSProperties {
   const goal = kind === "goal";
