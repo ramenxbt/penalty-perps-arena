@@ -78,6 +78,10 @@ export class SceneV2 {
   private diveT = 0;
   private diving = false;
   private saved = false;
+  /** Dev view auto-loops kicks; the real flow sets this false and drives playVolley(). */
+  autoplay = true;
+  private forced: boolean | null = null; // when set, this kick is forced to score / miss
+  private volley: boolean[] = []; // queued kick results for a resolved round
 
   private readonly quality = detectQuality();
 
@@ -349,9 +353,27 @@ export class SceneV2 {
     for (const [n, a] of this.clips) if (n !== name) a.fadeOut(fade);
   }
 
-  /** Start a strike: run up to the ball, swing, launch. Aims at a point in the goal mouth. */
-  kick() {
+  /** Queue a round's kicks; the first `goals` of `shots` score (shuffled). 0 shots = denied. */
+  playVolley(shots: number, goals: number) {
+    if (shots <= 0) {
+      this.onResult?.("save");
+      return;
+    }
+    const g = Math.max(0, Math.min(shots, goals));
+    const pattern: boolean[] = [];
+    for (let i = 0; i < shots; i += 1) pattern.push(i < g);
+    for (let i = pattern.length - 1; i > 0; i -= 1) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [pattern[i], pattern[j]] = [pattern[j], pattern[i]];
+    }
+    this.volley = pattern;
+    if (this.phase === "idle" && this.volley.length > 0) this.kick(this.volley.shift());
+  }
+
+  /** Start a strike. forceGoal forces score/miss (to match a resolved outcome); else random. */
+  kick(forceGoal?: boolean) {
     if (this.phase !== "idle" || !this.kicker) return;
+    this.forced = forceGoal === undefined ? null : forceGoal;
     this.phase = "runup";
     this.phaseT = 0;
     this.aimX = (Math.random() * 2 - 1) * 2.6;
@@ -362,7 +384,7 @@ export class SceneV2 {
   update(dt: number) {
     // Auto-loop in the dev view so the strike is visible; the real flow will call kick() instead.
     this.autoTimer += dt;
-    if (this.phase === "idle" && this.autoTimer > 2.8) {
+    if (this.autoplay && this.phase === "idle" && this.autoTimer > 2.8) {
       this.autoTimer = 0;
       this.kick();
     }
@@ -425,6 +447,8 @@ export class SceneV2 {
           this.keeper.position.set(0, this.keeperBaseY, this.keeperZ);
           this.keeper.rotation.set(0, 0, 0);
         }
+        // Continue a queued volley (the next earned shot).
+        if (this.volley.length > 0) this.kick(this.volley.shift());
       }
     }
   }
@@ -451,12 +475,19 @@ export class SceneV2 {
     this.postfx?.triggerImpact();
     this.postfx?.setSpeedLines(1);
 
-    // Keeper reads the shot: dives to the aimed side ~55% of the time. A save needs the right
-    // side, a reachable height, and a shot that is not dead-center (where a dive cannot cover).
     const correctSide = Math.sign(this.aimX) || 1;
-    this.diveDir = Math.random() < 0.55 ? correctSide : -correctSide;
-    const reachable = Math.abs(this.aimX) > 0.5 && Math.abs(this.aimX) < 2.4 && this.aimY < 1.7;
-    this.saved = this.diveDir === correctSide && reachable;
+    if (this.forced !== null) {
+      // Forced result (matches the resolved outcome): keeper dives the wrong way on a goal,
+      // onto the ball on a save.
+      this.saved = !this.forced;
+      this.diveDir = this.forced ? -correctSide : correctSide;
+    } else {
+      // Keeper reads the shot ~55% of the time; a save needs the right side, a reachable height,
+      // and a non-dead-center shot.
+      this.diveDir = Math.random() < 0.55 ? correctSide : -correctSide;
+      const reachable = Math.abs(this.aimX) > 0.5 && Math.abs(this.aimX) < 2.4 && this.aimY < 1.7;
+      this.saved = this.diveDir === correctSide && reachable;
+    }
     this.diving = true;
     this.diveT = 0;
   }

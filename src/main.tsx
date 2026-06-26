@@ -2,6 +2,7 @@ import React from "react";
 import { createRoot } from "react-dom/client";
 import { App } from "./App";
 import { AppAuthProvider } from "./auth/AuthContext";
+import { ArenaV2 } from "./components/ArenaV2";
 import { ArenaV2Dev } from "./components/ArenaV2Dev";
 import { ErrorBoundary } from "./components/ErrorBoundary";
 import { ToastProvider } from "./components/Toast";
@@ -12,9 +13,18 @@ if (!container) throw new Error("Root element #root not found");
 
 const root = createRoot(container);
 
-// Isolated v2 dev view: /?v2 renders only the new cel-shaded arena (no StrictMode = single WebGL context).
-if (new URLSearchParams(window.location.search).has("v2")) {
+const params = new URLSearchParams(window.location.search);
+// Isolated v2 views (no StrictMode = single WebGL context). /?v2 = playable, /?v2dev = auto-loop.
+if (params.has("v2dev")) {
   root.render(<ArenaV2Dev />);
+} else if (params.has("v2")) {
+  root.render(
+    <ErrorBoundary>
+      <AppAuthProvider>
+        <ArenaV2 />
+      </AppAuthProvider>
+    </ErrorBoundary>,
+  );
 } else {
   root.render(
     <React.StrictMode>
